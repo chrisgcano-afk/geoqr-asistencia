@@ -376,7 +376,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -401,7 +400,6 @@
         window.firebaseSignInWithEmailAndPassword = signInWithEmailAndPassword;
         window.firebaseCreateUserWithEmailAndPassword = createUserWithEmailAndPassword;
         window.firebaseSignOut = signOut;
-        const auth = getAuth(app);
 
         // Expose global functions to window for UI buttons
         window.cloudDb = db;
@@ -414,12 +412,8 @@
         window.GEOQR_ADMIN_EMAIL = "chrisgcano@gmail.com";
 
         onAuthStateChanged(auth, (user) => {
-            window.currentGeoUser = user || null;
-            applyAuthState(user);
-        });
-
-        onAuthStateChanged(auth, (user) => {
             window.currentGeoQRUser = user || null;
+            window.currentGeoUser = user || null;
             if (typeof updateAuthUI === 'function') updateAuthUI(user || null);
         });
 
@@ -657,8 +651,8 @@
                 if (window.cloudDb) {
                     await window.cloudAddDoc(window.cloudCollection(window.cloudDb, "attendance"), {
                         employee: currentEmployee,
-                        employeeEmail: user.email || '',
-                        employeeUid: currentEmployeeUid,
+                        employeeEmail: window.currentGeoQRUser?.email || '',
+                        employeeUid: window.currentGeoQRUser?.uid || '',
                         type: type,
                         time: nowTime,
                         gps: `${gps.lat.toFixed(6)}, ${gps.lng.toFixed(6)} • ${Math.round(gps.distance)}m from office`,
