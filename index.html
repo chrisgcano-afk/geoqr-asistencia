@@ -144,26 +144,19 @@
                         <div class="space-y-2 text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
                             <div class="flex justify-between">
                                 <span class="text-slate-400">Official Office:</span>
-                                <span class="font-medium text-slate-700">Madrid Central HQ</span>
+                                <span class="font-medium text-slate-700" id="officeName">Office not configured</span>
                             </div>
                             <div class="flex justify-between">
                                 <span class="text-slate-400">Coordinates:</span>
-                                <span class="font-mono" id="gpsCoords">40.4168° N, 3.7038° W</span>
+                                <span class="font-mono" id="gpsCoords">Waiting for GPS...</span>
                             </div>
                             <div class="flex justify-between items-center pt-1 border-t border-slate-200">
                                 <span class="text-slate-400">QR Distance:</span>
-                                <span class="font-bold text-emerald-600" id="gpsDistancia">10 meters (In Range)</span>
+                                <span class="font-bold text-slate-500" id="gpsDistancia">Not verified</span>
                             </div>
                         </div>
 
-                        <!-- Out of range simulator for testing -->
-                        <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                            <span class="text-xs text-slate-500 font-medium">Simulate out of range</span>
-                            <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" id="toggleFueraRango" onchange="toggleSimGPS()" class="sr-only peer">
-                                <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-500"></div>
-                            </label>
-                        </div>
+                        <p class="mt-3 text-[11px] text-slate-400">Your phone's live location is used only to verify distance from the configured office.</p>
                     </div>
 
                     <!-- Daily Summary (Cloud Live) -->
@@ -225,6 +218,21 @@
                 <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center">
                     <div id="qrCodeContainer" class="bg-white p-3 rounded-xl shadow-sm mb-2"></div>
                     <span class="text-[10px] text-slate-400 font-mono">HQ ID: MADRID-HQ-01</span>
+                </div>
+            </div>
+
+            <!-- Office GPS Settings -->
+            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <span class="bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-1 rounded-full"><i class="fa-solid fa-location-dot mr-1"></i> Office Settings</span>
+                        <h3 class="text-lg font-bold text-slate-800 mt-3">Authorized GPS Location</h3>
+                        <p class="text-xs text-slate-500 mt-1">Stand at the workplace and save the phone's current location as the authorized office. Default allowed radius: 50 meters.</p>
+                        <p id="officeSettingsStatus" class="text-xs text-slate-500 mt-3">No office location saved on this device yet.</p>
+                    </div>
+                    <button onclick="setCurrentLocationAsOffice()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-3 rounded-xl transition shadow-sm whitespace-nowrap">
+                        <i class="fa-solid fa-crosshairs mr-2"></i> Set Current Location as Office
+                    </button>
                 </div>
             </div>
 
@@ -384,6 +392,58 @@
     <!-- APP UI & LOGIC -->
     <script>
         window.globalCloudLogs = [];
+        const OFFICE_RADIUS_METERS = 50;
+        let lastGpsVerification = null;
+
+        function getSavedOffice() {
+            try { return JSON.parse(localStorage.getItem('geoqrOfficeLocation') || 'null'); }
+            catch (_) { return null; }
+        }
+
+        function haversineMeters(lat1, lon1, lat2, lon2) {
+            const R = 6371000;
+            const toRad = d => d * Math.PI / 180;
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat/2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        function requestPosition() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) return reject(new Error('Geolocation is not supported on this device.'));
+                navigator.geolocation.getCurrentPosition(resolve, reject, {
+                    enableHighAccuracy: true, timeout: 15000, maximumAge: 0
+                });
+            });
+        }
+
+        function refreshOfficeUi() {
+            const office = getSavedOffice();
+            const name = document.getElementById('officeName');
+            const status = document.getElementById('officeSettingsStatus');
+            if (office) {
+                if (name) name.textContent = 'Configured Office';
+                if (status) status.textContent = `Saved: ${office.lat.toFixed(6)}, ${office.lng.toFixed(6)} • Radius ${OFFICE_RADIUS_METERS}m`;
+            } else {
+                if (name) name.textContent = 'Office not configured';
+                if (status) status.textContent = 'No office location saved on this device yet.';
+            }
+        }
+
+        async function setCurrentLocationAsOffice() {
+            try {
+                const pos = await requestPosition();
+                const office = { lat: pos.coords.latitude, lng: pos.coords.longitude, savedAt: new Date().toISOString() };
+                localStorage.setItem('geoqrOfficeLocation', JSON.stringify(office));
+                lastGpsVerification = null;
+                refreshOfficeUi();
+                await verifyGPS(false);
+                alert('Office GPS location saved successfully. Employees must be within 50 meters to register attendance.');
+            } catch (e) {
+                alert('Could not save office location. Please allow precise location permission and try again.');
+            }
+        }
 
         // Initialize HQ QR Code
         window.addEventListener('DOMContentLoaded', () => {
@@ -402,6 +462,8 @@
                 }
             }
             
+            refreshOfficeUi();
+
             // PWA Install Prompt Detection
             window.addEventListener('beforeinstallprompt', (e) => {
                 e.preventDefault();
@@ -443,26 +505,46 @@
             else document.getElementById('empDept').innerText = "Marketing Department";
         }
 
-        function verifyGPS() {
-            alert("GPS location successfully verified with satellites. You are within the authorized office radius.");
-        }
-
-        function toggleSimGPS() {
-            const outOfRange = document.getElementById('toggleFueraRango').checked;
-            const dist = document.getElementById('gpsDistancia');
-            if (outOfRange) {
-                dist.innerText = "2.4 km (Out of Range)";
-                dist.className = "font-bold text-rose-600";
-            } else {
-                dist.innerText = "10 meters (In Range)";
-                dist.className = "font-bold text-emerald-600";
+        async function verifyGPS(showAlert = true) {
+            const office = getSavedOffice();
+            if (!office) {
+                lastGpsVerification = null;
+                if (showAlert) alert("Office location has not been configured. A manager must set it first.");
+                return null;
+            }
+            const coordsEl = document.getElementById('gpsCoords');
+            const distEl = document.getElementById('gpsDistancia');
+            try {
+                if (coordsEl) coordsEl.textContent = 'Locating...';
+                const pos = await requestPosition();
+                const lat = pos.coords.latitude, lng = pos.coords.longitude;
+                const distance = haversineMeters(lat, lng, office.lat, office.lng);
+                const inRange = distance <= OFFICE_RADIUS_METERS;
+                lastGpsVerification = { lat, lng, distance, inRange, accuracy: pos.coords.accuracy, verifiedAt: Date.now() };
+                if (coordsEl) coordsEl.textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                if (distEl) {
+                    distEl.textContent = `${Math.round(distance)} meters (${inRange ? 'In Range' : 'Out of Range'})`;
+                    distEl.className = inRange ? 'font-bold text-emerald-600' : 'font-bold text-rose-600';
+                }
+                if (showAlert) alert(inRange ? 'GPS verified. You are inside the authorized office radius.' : 'You are outside the authorized 50 meter office radius.');
+                return lastGpsVerification;
+            } catch (e) {
+                lastGpsVerification = null;
+                if (coordsEl) coordsEl.textContent = 'Location unavailable';
+                if (distEl) { distEl.textContent = 'GPS permission required'; distEl.className = 'font-bold text-rose-600'; }
+                if (showAlert) alert('Could not verify GPS. Enable precise location permission and try again.');
+                return null;
             }
         }
 
         async function checkIn(type) {
-            const outOfRange = document.getElementById('toggleFueraRango').checked;
-            if (outOfRange) {
-                alert("❌ ACCESS DENIED: You are outside the authorized office geographic radius. Move closer to the office to check in.");
+            const gps = await verifyGPS(false);
+            if (!gps) {
+                alert("❌ ACCESS DENIED: GPS could not be verified. Make sure an office is configured and location permission is enabled.");
+                return;
+            }
+            if (!gps.inRange) {
+                alert(`❌ ACCESS DENIED: You are ${Math.round(gps.distance)} meters from the authorized office. You must be within ${OFFICE_RADIUS_METERS} meters.`);
                 return;
             }
 
@@ -475,7 +557,8 @@
                         employee: currentEmployee,
                         type: type,
                         time: nowTime,
-                        gps: 'Madrid HQ (12m)',
+                        gps: `${gps.lat.toFixed(6)}, ${gps.lng.toFixed(6)} • ${Math.round(gps.distance)}m from office`,
+                        gpsAccuracy: Math.round(gps.accuracy || 0),
                         status: 'GPS Verified',
                         timestamp: window.cloudServerTimestamp()
                     });
