@@ -43,24 +43,6 @@
             <p id="authError" class="hidden text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2.5 mt-4"></p>
         </div>
     </div>
-    <!-- AUTH GATE -->
-    <div id="authGate" class="fixed inset-0 bg-slate-100 z-[100] flex items-center justify-center p-4">
-        <div class="bg-white w-full max-w-md rounded-3xl shadow-xl border border-slate-200 p-7">
-            <div class="text-center mb-6">
-                <div class="w-16 h-16 bg-indigo-600 text-white rounded-2xl mx-auto flex items-center justify-center text-2xl shadow"><i class="fa-solid fa-qrcode"></i></div>
-                <h2 class="text-xl font-bold mt-4">GeoQR Sign In</h2>
-                <p class="text-xs text-slate-500 mt-1">Sign in with your company account to continue.</p>
-            </div>
-            <form id="loginForm" class="space-y-3">
-                <input id="loginEmail" type="email" autocomplete="email" required placeholder="Email" class="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Password" class="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <button id="loginButton" type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl text-sm">Sign In</button>
-                <p id="loginError" class="text-xs text-rose-600 text-center min-h-4"></p>
-            </form>
-            <p class="text-[11px] text-slate-400 text-center mt-5">Employee accounts are created by the company administrator.</p>
-        </div>
-    </div>
-
     <!-- HEADER / NAVBAR -->
     <header class="bg-indigo-600 text-white shadow-md sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-4">
@@ -76,11 +58,7 @@
 
             <!-- Navigation & Actions -->
             <div class="flex items-center gap-2 flex-wrap">
-                <div id="authUserBox" class="hidden text-right mr-1">
-                    <p id="authUserEmail" class="text-[10px] text-indigo-100"></p>
-                    <button onclick="signOutGeoQR()" class="text-[10px] underline text-white">Sign out</button>
-                </div>
-                <div id="signedUserBox" class="hidden text-right mr-1">
+<div id="signedUserBox" class="hidden text-right mr-1">
                     <p id="signedUserName" class="text-xs font-semibold"></p>
                     <p id="signedUserEmail" class="text-[10px] text-indigo-200"></p>
                 </div>
