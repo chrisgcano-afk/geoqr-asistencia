@@ -482,10 +482,11 @@
             try {
                 const e = document.getElementById('authError'); if (e) e.classList.add('hidden');
                 if (!window.firebaseAuth || !window.firebaseGoogleProvider) return showAuthError('Firebase is still loading. Try again in a moment.');
-                const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-                if (mobile) await window.firebaseSignInWithRedirect(window.firebaseAuth, window.firebaseGoogleProvider);
-                else await window.firebaseSignInWithPopup(window.firebaseAuth, window.firebaseGoogleProvider);
-            } catch (err) { showAuthError(err?.message || 'Google sign-in failed.'); }
+                await window.firebaseSignInWithPopup(window.firebaseAuth, window.firebaseGoogleProvider);
+            } catch (err) {
+                console.error('Google sign-in error:', err);
+                showAuthError((err && (err.code || err.message)) || 'Google sign-in failed.');
+            }
         }
 
         async function loginWithEmail() {
