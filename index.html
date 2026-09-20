@@ -33,7 +33,7 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-lg tracking-wide leading-tight">GeoQR Cloud Attendance</h1>
-                    <p class="text-xs text-indigo-200">GPS & Cloud-verified PWA check-in</p>
+                    <p class="text-xs text-indigo-200">GPS & Firebase Realtime Cloud PWA</p>
                 </div>
             </div>
 
@@ -169,10 +169,10 @@
                     <!-- Daily Summary (Cloud Live) -->
                     <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
                         <h3 class="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
-                            <i class="fa-solid fa-clock-rotate-left text-indigo-600"></i> Today's Log (Live)
+                            <i class="fa-solid fa-clock-rotate-left text-indigo-600"></i> Today's Log (Cloud Live)
                         </h3>
                         <div id="liveTimeline" class="space-y-3">
-                            <p class="text-xs text-slate-400 italic text-center py-4">No logs recorded today yet.</p>
+                            <p class="text-xs text-slate-400 italic text-center py-4">Connecting to Firestore...</p>
                         </div>
                     </div>
                 </div>
@@ -195,7 +195,7 @@
                 <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
                     <div>
                         <p class="text-xs text-slate-400 font-semibold uppercase">Total Check-ins Today</p>
-                        <h4 class="text-2xl font-bold text-slate-800 mt-1" id="statCheckins">5</h4>
+                        <h4 class="text-2xl font-bold text-slate-800 mt-1" id="statCheckins">0</h4>
                     </div>
                     <div class="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-lg">
                         <i class="fa-solid fa-fingerprint"></i>
@@ -232,11 +232,9 @@
             <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                 <div class="p-5 border-b border-slate-100 flex justify-between items-center">
                     <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
-                        <i class="fa-solid fa-list-check text-indigo-600"></i> Live Attendance Log (Cloud)
+                        <i class="fa-solid fa-list-check text-indigo-600"></i> Live Attendance Log (Firebase Cloud)
                     </h3>
-                    <button onclick="loadCloudLogs()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition">
-                        <i class="fa-solid fa-rotate mr-1"></i> Refresh
-                    </button>
+                    <span class="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2.5 py-1 rounded-full"><span class="w-2 h-2 inline-block mr-1 bg-emerald-500 rounded-full animate-pulse"></span> Realtime Sync Active</span>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-xs text-slate-600">
@@ -251,7 +249,7 @@
                         </thead>
                         <tbody id="tableBossLogs" class="divide-y divide-slate-100">
                             <tr>
-                                <td colspan="5" class="px-5 py-6 text-center text-slate-400 italic">Synchronizing with cloud database...</td>
+                                <td colspan="5" class="px-5 py-6 text-center text-slate-400 italic">Loading records from Firebase...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -318,7 +316,7 @@
 
     <!-- FOOTER -->
     <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
-        GeoQR Cloud Attendance PWA &bull; Secure Geolocation Check-in System
+        GeoQR Cloud Attendance PWA &bull; Powered by Firebase Cloud Firestore
     </footer>
 
     <!-- PWA INSTALL MODAL -->
@@ -343,13 +341,49 @@
         </div>
     </div>
 
-    <!-- SCRIPT & PWA LOGIC -->
+    <!-- FIREBASE SDKs (CDN) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyDjSaEn1zvI9zAK9caNqLFSDvjngMj0lvw",
+            authDomain: "geoqr-asistencia.firebaseapp.com",
+            projectId: "geoqr-asistencia",
+            storageBucket: "geoqr-asistencia.firebasestorage.app",
+            messagingSenderId: "1047939511082",
+            appId: "1:1047939511082:web:655f17de768d4ffc0a6453",
+            measurementId: "G-31BSSEEX9S"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // Expose global functions to window for UI buttons
+        window.cloudDb = db;
+        window.cloudCollection = collection;
+        window.cloudAddDoc = addDoc;
+        window.cloudServerTimestamp = serverTimestamp;
+
+        // Realtime listener for attendance logs
+        const q = query(collection(db, "attendance"), orderBy("timestamp", "desc"));
+        onSnapshot(q, (snapshot) => {
+            const logs = [];
+            snapshot.forEach((doc) => {
+                logs.push({ id: doc.id, ...doc.data() });
+            });
+            window.globalCloudLogs = logs;
+            renderLogsFromCloud(logs);
+        }, (error) => {
+            console.error("Error fetching realtime data: ", error);
+        });
+    </script>
+
+    <!-- APP UI & LOGIC -->
     <script>
-        let cloudLogs = [
-            { id: 1, employee: 'Ana Martinez (Designer)', type: 'Check-in', time: '08:58 AM', gps: 'Madrid HQ (10m)', status: 'GPS Verified' },
-            { id: 2, employee: 'Carlos Ruiz (Developer)', type: 'Check-in', time: '09:12 AM', gps: 'Madrid HQ (15m)', status: 'GPS Verified' },
-            { id: 3, employee: 'Sofia Gomez (Marketing)', type: 'Check-in', time: '08:50 AM', gps: 'Madrid HQ (8m)', status: 'GPS Verified' }
-        ];
+        window.globalCloudLogs = [];
 
         // Initialize HQ QR Code
         window.addEventListener('DOMContentLoaded', () => {
@@ -367,7 +401,6 @@
                     qrContainer.innerHTML = "<p class='text-xs text-slate-400'>Madrid HQ QR</p>";
                 }
             }
-            renderLogs();
             
             // PWA Install Prompt Detection
             window.addEventListener('beforeinstallprompt', (e) => {
@@ -392,7 +425,7 @@
             } else if (tab === 'boss') {
                 document.getElementById('view-boss').classList.remove('hidden');
                 document.getElementById('tabBoss').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm";
-                loadCloudLogs();
+                loadCloudLogsToTable();
             } else if (tab === 'reports') {
                 document.getElementById('view-reports').classList.remove('hidden');
                 document.getElementById('tabRep').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm";
@@ -426,7 +459,7 @@
             }
         }
 
-        function checkIn(type) {
+        async function checkIn(type) {
             const outOfRange = document.getElementById('toggleFueraRango').checked;
             if (outOfRange) {
                 alert("❌ ACCESS DENIED: You are outside the authorized office geographic radius. Move closer to the office to check in.");
@@ -434,34 +467,40 @@
             }
 
             const currentEmployee = document.getElementById('selectEmployee').value;
-            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             
-            cloudLogs.unshift({
-                id: Date.now(),
-                employee: currentEmployee,
-                type: type,
-                time: now,
-                gps: 'Madrid HQ (12m)',
-                status: 'GPS Verified'
-            });
+            try {
+                if (window.cloudDb) {
+                    await window.cloudAddDoc(window.cloudCollection(window.cloudDb, "attendance"), {
+                        employee: currentEmployee,
+                        type: type,
+                        time: nowTime,
+                        gps: 'Madrid HQ (12m)',
+                        status: 'GPS Verified',
+                        timestamp: window.cloudServerTimestamp()
+                    });
+                }
 
-            // Update Employee Status Badge
-            const badge = document.getElementById('empStatusBadge');
-            badge.className = "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800";
-            badge.innerHTML = `<span class=\"w-2 h-2 mr-1.5 bg-emerald-500 rounded-full\"></span> Checked: ${type} (${now})`;
+                // Update Employee Status Badge
+                const badge = document.getElementById('empStatusBadge');
+                badge.className = "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800";
+                badge.innerHTML = `<span class=\"w-2 h-2 mr-1.5 bg-emerald-500 rounded-full\"></span> Checked: ${type} (${nowTime})`;
 
-            renderLogs();
-            alert(`Successfully registered "${type}" to the cloud at ${now}!`);
+                alert(`Successfully registered "${type}" to Firebase Cloud at ${nowTime}!`);
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                alert("Error saving to cloud. Check your connection.");
+            }
         }
 
-        function renderLogs() {
+        function renderLogsFromCloud(logs) {
             const timeline = document.getElementById('liveTimeline');
-            if(cloudLogs.length === 0) {
+            if(!logs || logs.length === 0) {
                 timeline.innerHTML = `<p class="text-xs text-slate-400 italic text-center py-4">No logs recorded today yet.</p>`;
                 return;
             }
 
-            timeline.innerHTML = cloudLogs.slice(0, 3).map(r => `
+            timeline.innerHTML = logs.slice(0, 3).map(r => `
                 <div class="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
                     <div>
                         <span class="font-semibold text-slate-800 block">${r.type}</span>
@@ -470,13 +509,21 @@
                     <span class="font-mono font-medium text-indigo-600">${r.time}</span>
                 </div>
             `).join('');
+
+            document.getElementById('statCheckins').innerText = logs.length;
+            loadCloudLogsToTable();
         }
 
-        function loadCloudLogs() {
+        function loadCloudLogsToTable() {
             const tbody = document.getElementById('tableBossLogs');
-            document.getElementById('statCheckins').innerText = cloudLogs.length;
+            const logs = window.globalCloudLogs || [];
             
-            tbody.innerHTML = cloudLogs.map(r => `
+            if(logs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-6 text-center text-slate-400 italic">No records found in Firestore yet.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = logs.map(r => `
                 <tr class="hover:bg-slate-50">
                     <td class="px-5 py-3 font-semibold text-slate-800">${r.employee}</td>
                     <td class="px-5 py-3"><span class="px-2 py-0.5 rounded-md font-medium ${r.type === 'Check-in' ? 'bg-emerald-50 text-emerald-700' : r.type === 'Check-out' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}">${r.type}</span></td>
