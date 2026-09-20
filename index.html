@@ -30,15 +30,15 @@
                 <h2 class="text-2xl font-bold text-slate-900">Welcome to GeoQR</h2>
                 <p class="text-sm text-slate-500 mt-1">Sign in to access attendance.</p>
             </div>
-            <button onclick="loginWithGoogle()" class="w-full border border-slate-300 hover:bg-slate-50 rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2">
+            <button id="googleLoginBtn" type="button" class="w-full border border-slate-300 hover:bg-slate-50 rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2">
                 <i class="fa-brands fa-google"></i> Continue with Google
             </button>
             <div class="flex items-center gap-3 my-5"><div class="h-px bg-slate-200 flex-1"></div><span class="text-xs text-slate-400">or</span><div class="h-px bg-slate-200 flex-1"></div></div>
             <div class="space-y-3">
                 <input id="authEmail" type="email" autocomplete="email" placeholder="Email address" class="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <input id="authPassword" type="password" autocomplete="current-password" placeholder="Password" class="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <button onclick="loginWithEmail()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-sm font-semibold">Sign In</button>
-                <button onclick="registerWithEmail()" class="w-full text-indigo-600 hover:text-indigo-800 text-xs font-semibold py-1">Create employee account</button>
+                <button id="emailLoginBtn" type="button" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-sm font-semibold">Sign In</button>
+                <button id="registerBtn" type="button" class="w-full text-indigo-600 hover:text-indigo-800 text-xs font-semibold py-1">Create employee account</button>
             </div>
             <p id="authError" class="hidden text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2.5 mt-4"></p>
         </div>
