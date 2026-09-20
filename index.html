@@ -23,6 +23,23 @@
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col justify-between">
+    <!-- AUTH GATE -->
+    <div id="authGate" class="fixed inset-0 bg-slate-100 z-[100] flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-3xl shadow-xl border border-slate-200 p-7">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-indigo-600 text-white rounded-2xl mx-auto flex items-center justify-center text-2xl shadow"><i class="fa-solid fa-qrcode"></i></div>
+                <h2 class="text-xl font-bold mt-4">GeoQR Sign In</h2>
+                <p class="text-xs text-slate-500 mt-1">Sign in with your company account to continue.</p>
+            </div>
+            <form id="loginForm" class="space-y-3">
+                <input id="loginEmail" type="email" autocomplete="email" required placeholder="Email" class="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Password" class="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <button id="loginButton" type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl text-sm">Sign In</button>
+                <p id="loginError" class="text-xs text-rose-600 text-center min-h-4"></p>
+            </form>
+            <p class="text-[11px] text-slate-400 text-center mt-5">Employee accounts are created by the company administrator.</p>
+        </div>
+    </div>
 
     <!-- HEADER / NAVBAR -->
     <header class="bg-indigo-600 text-white shadow-md sticky top-0 z-50">
@@ -39,6 +56,10 @@
 
             <!-- Navigation & Actions -->
             <div class="flex items-center gap-2 flex-wrap">
+                <div id="authUserBox" class="hidden text-right mr-1">
+                    <p id="authUserEmail" class="text-[10px] text-indigo-100"></p>
+                    <button onclick="signOutGeoQR()" class="text-[10px] underline text-white">Sign out</button>
+                </div>
                 <!-- PWA Install Button -->
                 <button id="btnInstall" onclick="showInstallInstructions()" class="hidden bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow transition flex items-center gap-1.5 animate-bounce">
                     <i class="fa-solid fa-cloud-arrow-down"></i> Install App
@@ -48,10 +69,10 @@
                     <button onclick="switchTab('employee')" id="tabEmp" class="px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm">
                         <i class="fa-solid fa-user-clock mr-1"></i> Employee View
                     </button>
-                    <button onclick="switchTab('boss')" id="tabBoss" class="px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white">
+                    <button onclick="switchTab('boss')" id="tabBoss" data-admin-only="true" class="px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white">
                         <i class="fa-solid fa-chart-line mr-1"></i> Manager Panel
                     </button>
-                    <button onclick="switchTab('reports')" id="tabRep" class="px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white">
+                    <button onclick="switchTab('reports')" id="tabRep" data-admin-only="true" class="px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white">
                         <i class="fa-solid fa-calendar-days mr-1"></i> Weekly Reports
                     </button>
                 </div>
@@ -64,18 +85,14 @@
 
         <!-- ================= EMPLOYEE VIEW ================= -->
         <div id="view-employee" class="space-y-6">
-            <!-- Test Profile Selector -->
+            <!-- Authenticated Employee Profile -->
             <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
                 <div class="flex items-center gap-3 w-full sm:w-auto">
                     <div class="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-lg" id="empAvatar">
                         AM
                     </div>
                     <div>
-                        <select id="selectEmployee" onchange="changeEmployee()" class="font-semibold text-slate-800 bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                            <option value="Ana Martinez (Designer)">Ana Martinez (Designer)</option>
-                            <option value="Carlos Ruiz (Developer)">Carlos Ruiz (Developer)</option>
-                            <option value="Sofia Gomez (Marketing)">Sofia Gomez (Marketing)</option>
-                        </select>
+                        <div id="selectEmployee" class="font-semibold text-slate-800 text-sm">Signed-in employee</div>
                         <p class="text-xs text-slate-500 mt-0.5" id="empDept">Design Department</p>
                     </div>
                 </div>
@@ -353,6 +370,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -368,12 +386,22 @@
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        const auth = getAuth(app);
 
         // Expose global functions to window for UI buttons
         window.cloudDb = db;
         window.cloudCollection = collection;
         window.cloudAddDoc = addDoc;
         window.cloudServerTimestamp = serverTimestamp;
+        window.geoAuth = auth;
+        window.geoSignIn = signInWithEmailAndPassword;
+        window.geoSignOut = signOut;
+        window.GEOQR_ADMIN_EMAIL = "chrisgcano@gmail.com";
+
+        onAuthStateChanged(auth, (user) => {
+            window.currentGeoUser = user || null;
+            applyAuthState(user);
+        });
 
         // Realtime listener for attendance logs
         const q = query(collection(db, "attendance"), orderBy("timestamp", "desc"));
@@ -392,6 +420,61 @@
     <!-- APP UI & LOGIC -->
     <script>
         window.globalCloudLogs = [];
+        window.currentGeoUser = null;
+
+        function isAdminUser() {
+            return !!window.currentGeoUser && window.currentGeoUser.email.toLowerCase() === window.GEOQR_ADMIN_EMAIL;
+        }
+
+        function employeeLabel() {
+            if (!window.currentGeoUser) return 'Unknown employee';
+            return window.currentGeoUser.displayName || window.currentGeoUser.email;
+        }
+
+        function applyAuthState(user) {
+            const gate = document.getElementById('authGate');
+            const userBox = document.getElementById('authUserBox');
+            const email = document.getElementById('authUserEmail');
+            const adminEls = document.querySelectorAll('[data-admin-only="true"]');
+            if (!user) {
+                gate.classList.remove('hidden');
+                userBox.classList.add('hidden');
+                adminEls.forEach(el => el.classList.add('hidden'));
+                return;
+            }
+            gate.classList.add('hidden');
+            userBox.classList.remove('hidden');
+            email.textContent = user.email;
+            adminEls.forEach(el => el.classList.toggle('hidden', !isAdminUser()));
+            const emp = document.getElementById('selectEmployee');
+            if (emp) emp.textContent = employeeLabel();
+            const avatar = document.getElementById('empAvatar');
+            if (avatar) avatar.textContent = (user.email || 'U').substring(0,2).toUpperCase();
+            document.getElementById('empDept').textContent = isAdminUser() ? 'Administrator' : 'Employee';
+            switchTab('employee');
+        }
+
+        document.addEventListener('submit', async (e) => {
+            if (e.target.id !== 'loginForm') return;
+            e.preventDefault();
+            const error = document.getElementById('loginError');
+            const btn = document.getElementById('loginButton');
+            error.textContent = '';
+            btn.disabled = true;
+            btn.textContent = 'Signing in...';
+            try {
+                await window.geoSignIn(window.geoAuth, document.getElementById('loginEmail').value.trim(), document.getElementById('loginPassword').value);
+            } catch (err) {
+                error.textContent = 'Sign-in failed. Check your email/password and make sure the account exists in Firebase Authentication.';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Sign In';
+            }
+        });
+
+        async function signOutGeoQR() {
+            if (window.geoAuth && window.geoSignOut) await window.geoSignOut(window.geoAuth);
+        }
         const OFFICE_RADIUS_METERS = 50;
         let lastGpsVerification = null;
 
@@ -473,6 +556,10 @@
         });
 
         function switchTab(tab) {
+            if ((tab === 'boss' || tab === 'reports') && !isAdminUser()) {
+                alert('Administrator access required.');
+                tab = 'employee';
+            }
             document.getElementById('view-employee').classList.add('hidden');
             document.getElementById('view-boss').classList.add('hidden');
             document.getElementById('view-reports').classList.add('hidden');
@@ -494,16 +581,7 @@
             }
         }
 
-        function changeEmployee() {
-            const select = document.getElementById('selectEmployee');
-            const name = select.value;
-            const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2);
-            document.getElementById('empAvatar').innerText = initials;
-            
-            if(name.includes('Ana')) document.getElementById('empDept').innerText = "Design Department";
-            else if(name.includes('Carlos')) document.getElementById('empDept').innerText = "Development Department";
-            else document.getElementById('empDept').innerText = "Marketing Department";
-        }
+
 
         async function verifyGPS(showAlert = true) {
             const office = getSavedOffice();
@@ -548,7 +626,11 @@
                 return;
             }
 
-            const currentEmployee = document.getElementById('selectEmployee').value;
+            if (!window.currentGeoUser) {
+                alert("Please sign in before registering attendance.");
+                return;
+            }
+            const currentEmployee = employeeLabel();
             const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             
             try {
