@@ -23,6 +23,26 @@
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col justify-between">
+    <div id="authGate" class="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md p-7">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-2xl mb-3"><i class="fa-solid fa-qrcode"></i></div>
+                <h2 class="text-2xl font-bold text-slate-900">Welcome to GeoQR</h2>
+                <p class="text-sm text-slate-500 mt-1">Sign in to access attendance.</p>
+            </div>
+            <button onclick="loginWithGoogle()" class="w-full border border-slate-300 hover:bg-slate-50 rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2">
+                <i class="fa-brands fa-google"></i> Continue with Google
+            </button>
+            <div class="flex items-center gap-3 my-5"><div class="h-px bg-slate-200 flex-1"></div><span class="text-xs text-slate-400">or</span><div class="h-px bg-slate-200 flex-1"></div></div>
+            <div class="space-y-3">
+                <input id="authEmail" type="email" autocomplete="email" placeholder="Email address" class="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <input id="authPassword" type="password" autocomplete="current-password" placeholder="Password" class="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <button onclick="loginWithEmail()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-sm font-semibold">Sign In</button>
+                <button onclick="registerWithEmail()" class="w-full text-indigo-600 hover:text-indigo-800 text-xs font-semibold py-1">Create employee account</button>
+            </div>
+            <p id="authError" class="hidden text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2.5 mt-4"></p>
+        </div>
+    </div>
     <!-- AUTH GATE -->
     <div id="authGate" class="fixed inset-0 bg-slate-100 z-[100] flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-md rounded-3xl shadow-xl border border-slate-200 p-7">
@@ -60,6 +80,13 @@
                     <p id="authUserEmail" class="text-[10px] text-indigo-100"></p>
                     <button onclick="signOutGeoQR()" class="text-[10px] underline text-white">Sign out</button>
                 </div>
+                <div id="signedUserBox" class="hidden text-right mr-1">
+                    <p id="signedUserName" class="text-xs font-semibold"></p>
+                    <p id="signedUserEmail" class="text-[10px] text-indigo-200"></p>
+                </div>
+                <button id="btnLogout" onclick="logoutGeoQR()" class="hidden bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-semibold px-3 py-2 rounded-lg">
+                    <i class="fa-solid fa-arrow-right-from-bracket mr-1"></i> Sign Out
+                </button>
                 <!-- PWA Install Button -->
                 <button id="btnInstall" onclick="showInstallInstructions()" class="hidden bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow transition flex items-center gap-1.5 animate-bounce">
                     <i class="fa-solid fa-cloud-arrow-down"></i> Install App
@@ -369,6 +396,7 @@
     <!-- FIREBASE SDKs (CDN) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
@@ -387,6 +415,15 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
+        const googleProvider = new GoogleAuthProvider();
+
+        window.firebaseAuth = auth;
+        window.firebaseGoogleProvider = googleProvider;
+        window.firebaseSignInWithPopup = signInWithPopup;
+        window.firebaseSignInWithEmailAndPassword = signInWithEmailAndPassword;
+        window.firebaseCreateUserWithEmailAndPassword = createUserWithEmailAndPassword;
+        window.firebaseSignOut = signOut;
+        const auth = getAuth(app);
 
         // Expose global functions to window for UI buttons
         window.cloudDb = db;
@@ -401,6 +438,11 @@
         onAuthStateChanged(auth, (user) => {
             window.currentGeoUser = user || null;
             applyAuthState(user);
+        });
+
+        onAuthStateChanged(auth, (user) => {
+            window.currentGeoQRUser = user || null;
+            if (typeof updateAuthUI === 'function') updateAuthUI(user || null);
         });
 
         // Realtime listener for attendance logs
@@ -637,6 +679,8 @@
                 if (window.cloudDb) {
                     await window.cloudAddDoc(window.cloudCollection(window.cloudDb, "attendance"), {
                         employee: currentEmployee,
+                        employeeEmail: user.email || '',
+                        employeeUid: currentEmployeeUid,
                         type: type,
                         time: nowTime,
                         gps: `${gps.lat.toFixed(6)}, ${gps.lng.toFixed(6)} • ${Math.round(gps.distance)}m from office`,
