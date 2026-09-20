@@ -375,7 +375,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -408,6 +408,9 @@
         window.cloudCollection = collection;
         window.cloudAddDoc = addDoc;
         window.cloudServerTimestamp = serverTimestamp;
+        window.cloudDoc = doc;
+        window.cloudGetDoc = getDoc;
+        window.cloudSetDoc = setDoc;
         window.geoAuth = auth;
         window.geoSignIn = signInWithEmailAndPassword;
         window.geoSignOut = signOut;
@@ -422,6 +425,7 @@
             window.currentGeoQRUser = user || null;
             window.currentGeoUser = user || null;
             if (typeof updateAuthUI === 'function') updateAuthUI(user || null);
+            if (user && typeof loadOfficeFromCloud === 'function') loadOfficeFromCloud();
         });
 
         // Realtime listener for attendance logs
@@ -539,9 +543,26 @@
         const OFFICE_RADIUS_METERS = 50;
         let lastGpsVerification = null;
 
+        let sharedOfficeLocation = null;
+
+        async function loadOfficeFromCloud() {
+            try {
+                if (!window.cloudDb || !window.cloudDoc || !window.cloudGetDoc) return null;
+                const ref = window.cloudDoc(window.cloudDb, 'settings', 'authorizedOffice');
+                const snap = await window.cloudGetDoc(ref);
+                sharedOfficeLocation = snap.exists() ? snap.data() : null;
+                refreshOfficeUi();
+                return sharedOfficeLocation;
+            } catch (e) {
+                console.error('Could not load office from Firestore:', e);
+                sharedOfficeLocation = null;
+                refreshOfficeUi();
+                return null;
+            }
+        }
+
         function getSavedOffice() {
-            try { return JSON.parse(localStorage.getItem('geoqrOfficeLocation') || 'null'); }
-            catch (_) { return null; }
+            return sharedOfficeLocation;
         }
 
         function haversineMeters(lat1, lon1, lat2, lon2) {
@@ -567,25 +588,39 @@
             const name = document.getElementById('officeName');
             const status = document.getElementById('officeSettingsStatus');
             if (office) {
-                if (name) name.textContent = 'Configured Office';
-                if (status) status.textContent = `Saved: ${office.lat.toFixed(6)}, ${office.lng.toFixed(6)} • Radius ${OFFICE_RADIUS_METERS}m`;
+                if (name) name.textContent = office.name || 'Configured Office';
+                if (status) status.textContent = `Saved in cloud: ${Number(office.lat).toFixed(6)}, ${Number(office.lng).toFixed(6)} • Radius ${office.radiusMeters || OFFICE_RADIUS_METERS}m`;
             } else {
                 if (name) name.textContent = 'Office not configured';
-                if (status) status.textContent = 'No office location saved on this device yet.';
+                if (status) status.textContent = 'No authorized office location is configured in Firebase yet.';
             }
         }
 
         async function setCurrentLocationAsOffice() {
+            if (!isAdminUser()) {
+                alert('Administrator access required.');
+                return;
+            }
             try {
                 const pos = await requestPosition();
-                const office = { lat: pos.coords.latitude, lng: pos.coords.longitude, savedAt: new Date().toISOString() };
-                localStorage.setItem('geoqrOfficeLocation', JSON.stringify(office));
+                const office = {
+                    name: 'Authorized Office',
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    radiusMeters: OFFICE_RADIUS_METERS,
+                    updatedBy: window.currentGeoQRUser?.uid || '',
+                    updatedByEmail: window.currentGeoQRUser?.email || '',
+                    updatedAt: window.cloudServerTimestamp()
+                };
+                await window.cloudSetDoc(window.cloudDoc(window.cloudDb, 'settings', 'authorizedOffice'), office, { merge: true });
+                sharedOfficeLocation = { ...office, updatedAt: new Date() };
                 lastGpsVerification = null;
                 refreshOfficeUi();
                 await verifyGPS(false);
-                alert('Office GPS location saved successfully. Employees must be within 50 meters to register attendance.');
+                alert('Office GPS location saved to Firebase. Employees will now use this shared authorized location.');
             } catch (e) {
-                alert('Could not save office location. Please allow precise location permission and try again.');
+                console.error('Could not save office location:', e);
+                alert('Could not save the office location to Firebase. Check Firestore permissions and location access.');
             }
         }
 
@@ -607,6 +642,7 @@
             }
             
             refreshOfficeUi();
+            if (window.currentGeoQRUser) loadOfficeFromCloud();
 
             // PWA Install Prompt Detection
             window.addEventListener('beforeinstallprompt', (e) => {
@@ -645,7 +681,8 @@
 
 
         async function verifyGPS(showAlert = true) {
-            const office = getSavedOffice();
+            let office = getSavedOffice();
+            if (!office) office = await loadOfficeFromCloud();
             if (!office) {
                 lastGpsVerification = null;
                 if (showAlert) alert("Office location has not been configured. A manager must set it first.");
@@ -658,14 +695,15 @@
                 const pos = await requestPosition();
                 const lat = pos.coords.latitude, lng = pos.coords.longitude;
                 const distance = haversineMeters(lat, lng, office.lat, office.lng);
-                const inRange = distance <= OFFICE_RADIUS_METERS;
+                const allowedRadius = Number(office.radiusMeters || OFFICE_RADIUS_METERS);
+                const inRange = distance <= allowedRadius;
                 lastGpsVerification = { lat, lng, distance, inRange, accuracy: pos.coords.accuracy, verifiedAt: Date.now() };
                 if (coordsEl) coordsEl.textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
                 if (distEl) {
                     distEl.textContent = `${Math.round(distance)} meters (${inRange ? 'In Range' : 'Out of Range'})`;
                     distEl.className = inRange ? 'font-bold text-emerald-600' : 'font-bold text-rose-600';
                 }
-                if (showAlert) alert(inRange ? 'GPS verified. You are inside the authorized office radius.' : 'You are outside the authorized 50 meter office radius.');
+                if (showAlert) alert(inRange ? 'GPS verified. You are inside the authorized office radius.' : `You are outside the authorized ${allowedRadius} meter office radius.`);
                 return lastGpsVerification;
             } catch (e) {
                 lastGpsVerification = null;
