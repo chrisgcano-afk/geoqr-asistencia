@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoQR Cloud Asistencia - Control Empresarial</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- QR Code Generator & Scanner Library -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <!-- PWA Manifest & Meta -->
+    <link rel="manifest" href="data:application/manifest+json;charset=utf-8,%7B%22name%22%3A%22GeoQR%20Asistencia%22%2C%22short_name%22%3A%22GeoQR%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%236366f1%22%2C%22theme_color%22%3A%22%236366f1%22%2C%22icons%22%3A%5B%5D%7D">
+    <meta name="theme-color" content="#6366f1">
+    <style>
+        @keyframes pulse-subtle {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.85; transform: scale(1.02); }
+        .animate-pulse-subtle { animation: pulse-subtle 3s infinite ease-in-out; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col justify-between">
+
+    <!-- HEADER / NAVBAR -->
+    <header class="bg-indigo-600 text-white shadow-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="bg-white/10 p-2.5 rounded-xl backdrop-blur-sm border border-white/20">
+                    <i class="fa-solid fa-qrcode text-xl text-indigo-100"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg tracking-wide leading-tight">GeoQR Cloud Asistencia</h1>
+                    <p class="text-xs text-indigo-200">PWA fichaje con validación GPS y en la nube</p>
+                </div>
+            </div>
+
+            <!-- Navegación & Acciones -->
+            <div class="flex items-center gap-2 flex-wrap">
+                <!-- Botón Instalación PWA -->
+                <button id="btnInstall" onclick="showInstallInstructions()" class="hidden bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow transition flex items-center gap-1.5 animate-bounce">
+                    <i class="fa-solid fa-cloud-arrow-down"></i> Instalar App
+                </button>
+
+                <div class="bg-indigo-700/60 p-1 rounded-xl flex items-center gap-1 border border-indigo-500/40">
+                    <button onclick="switchTab('empleado')" id="tabEmp" class="px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm">
+                        <i class="fa-solid fa-user-clock mr-1"></i> Vista Empleado
+                    </button>
+                    <button onclick="switchTab('jefe')" id="tabJefe" class="px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white">
+                        <i class="fa-solid fa-chart-line mr-1"></i> Panel Jefe
+                    </button>
+                    <button onclick="switchTab('reportes')" id="tabRep" class="px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white">
+                        <i class="fa-solid fa-calendar-days mr-1"></i> Reportes Semanales
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- CONTENEDOR PRINCIPAL -->
+    <main class="max-w-7xl mx-auto px-4 py-6 w-full flex-grow">
+
+        <!-- ================= VISTA EMPLEADO ================= -->
+        <div id="view-empleado" class="space-y-6">
+            <!-- Selector de Perfil de Prueba -->
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+                <div class="flex items-center gap-3 w-full sm:w-auto">
+                    <div class="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-lg" id="empAvatar">
+                        AM
+                    </div>
+                    <div>
+                        <select id="selectEmpleado" onchange="cambiarEmpleado()" class="font-semibold text-slate-800 bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="Ana Martínez (Diseñadora)">Ana Martínez (Diseñadora)</option>
+                            <option value="Carlos Ruiz (Desarrollador)">Carlos Ruiz (Desarrollador)</option>
+                            <option value="Sofía Gómez (Marketing)">Sofía Gómez (Marketing)</option>
+                        </select>
+                        <p class="text-xs text-slate-500 mt-0.5" id="empDepto">Departamento de Diseño</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800" id="empEstadoBadge">
+                        <span class="w-2 h-2 mr-1.5 bg-amber-500 rounded-full animate-pulse"></span> No ha fichado hoy
+                    </span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Columna Izq: Escáner y Acciones de Fichaje -->
+                <div class="lg:col-span-2 space-y-6">
+                    <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 bg-indigo-50 text-indigo-600 px-4 py-1.5 rounded-bl-2xl text-xs font-semibold border-l border-b border-indigo-100">
+                            <i class="fa-solid fa-building-shield mr-1"></i> Sede Central Madrid
+                        </div>
+                        <h2 class="text-lg font-bold text-slate-800 mb-1"><i class="fa-solid fa-qrcode text-indigo-600 mr-2"></i>Fichar Asistencia en Sede</h2>
+                        <p class="text-xs text-slate-500 mb-6">Escanea el código QR físico de oficina o pulsa los botones para registrar tu jornada con geolocalización obligatoria.</p>
+
+                        <!-- Simulador de Cámara QR / Escáner Real -->
+                        <div class="bg-slate-900 rounded-2xl p-6 text-white text-center flex flex-col items-center justify-center relative min-h-[220px] shadow-inner">
+                            <div id="scanner-container" class="w-full max-w-xs mx-auto hidden">
+                                <div id="reader" class="rounded-xl overflow-hidden"></div>
+                                <button onclick="cerrarCamara()" class="mt-3 bg-rose-500 hover:bg-rose-600 text-white text-xs px-3 py-1.5 rounded-lg">Cerrar Cámara</button>
+                            </div>
+                            <div id="scanner-placeholder" class="space-y-3">
+                                <div class="w-16 h-16 bg-white/10 rounded-2xl mx-auto flex items-center justify-center border border-white/20 animate-pulse-subtle">
+                                    <i class="fa-solid fa-camera text-2xl text-indigo-300"></i>
+                                </div>
+                                <p class="text-sm font-medium text-slate-200">Apunta al código QR ubicado en la entrada de la oficina</p>
+                                <button onclick="iniciarEscaneoQR()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-5 py-2.5 rounded-xl shadow transition flex items-center gap-2 mx-auto">
+                                    <i class="fa-solid fa-expand"></i> Activar Cámara / Escanear QR
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Botones de Fichaje Manual / Automático tras QR -->
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
+                            <button onclick="fichar('Entrada')" class="bg-emerald-600 hover:bg-emerald-700 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
+                                <i class="fa-solid fa-right-to-bracket text-base"></i> Fichar Entrada
+                            </button>
+                            <button onclick="fichar('Break')" class="bg-amber-500 hover:bg-amber-600 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
+                                <i class="fa-solid fa-mug-hot text-base"></i> Inicio Break
+                            </button>
+                            <button onclick="fichar('Lunch')" class="bg-blue-600 hover:bg-blue-700 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
+                                <i class="fa-solid fa-utensils text-base"></i> Almuerzo (Lunch)
+                            </button>
+                            <button onclick="fichar('Salida')" class="bg-rose-600 hover:bg-rose-700 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
+                                <i class="fa-solid fa-right-from-bracket text-base"></i> Fichar Salida
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Columna Der: Estado GPS y Registro en Vivo -->
+                <div class="space-y-6">
+                    <!-- Widget Geolocalización -->
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
+                                <i class="fa-solid fa-location-crosshairs text-indigo-600"></i> Geolocalización GPS
+                            </h3>
+                            <button onclick="verificarGPS()" class="text-xs text-indigo-600 hover:underline font-medium">Actualizar</button>
+                        </div>
+                        <div class="space-y-2 text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Sede Oficial:</span>
+                                <span class="font-medium text-slate-700">Oficina Central Madrid</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Coordenadas:</span>
+                                <span class="font-mono" id="gpsCoords">40.4168° N, 3.7038° W</span>
+                            </div>
+                            <div class="flex justify-between items-center pt-1 border-t border-slate-200">
+                                <span class="text-slate-400">Distancia al QR:</span>
+                                <span class="font-bold text-emerald-600" id="gpsDistancia">10 metros (En Sede)</span>
+                            </div>
+                        </div>
+
+                        <!-- Simulador de fuera de rango para pruebas -->
+                        <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                            <span class="text-xs text-slate-500 font-medium">Simular estar fuera de sede</span>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="toggleFueraRango" onchange="toggleSimularGPS()" class="sr-only peer">
+                                <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-500"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Resumen del Día (Cloud Live) -->
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                        <h3 class="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                            <i class="fa-solid fa-clock-rotate-left text-indigo-600"></i> Registro de Hoy (En Vivo)
+                        </h3>
+                        <div id="liveTimeline" class="space-y-3">
+                            <p class="text-xs text-slate-400 italic text-center py-4">No hay registros hoy todavía.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= PANEL JEFE ================= -->
+        <div id="view-jefe" class="space-y-6 hidden">
+            <!-- Estadísticas Directas -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs text-slate-400 font-semibold uppercase">Empleados Trabajando Ahora</p>
+                        <h4 class="text-2xl font-bold text-slate-800 mt-1" id="statActivos">2 / 3</h4>
+                    </div>
+                    <div class="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-users"></i>
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs text-slate-400 font-semibold uppercase">Fichajes Totales Hoy</p>
+                        <h4 class="text-2xl font-bold text-slate-800 mt-1" id="statFichajes">5</h4>
+                    </div>
+                    <div class="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-fingerprint"></i>
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs text-slate-400 font-semibold uppercase">Validaciones GPS Seguras</p>
+                        <h4 class="text-2xl font-bold text-emerald-600 mt-1">100%</h4>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-shield-halved"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Visor del Código QR Institucional -->
+            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                <div class="md:col-span-2 space-y-3">
+                    <span class="bg-indigo-50 text-indigo-700 text-xs font-semibold px-2.5 py-1 rounded-full"><i class="fa-solid fa-lock mr-1"></i> Seguridad Antifraude</span>
+                    <h3 class="text-lg font-bold text-slate-800">Código QR Oficial de Sede</h3>
+                    <p class="text-xs text-slate-500 leading-relaxed">Imprime este código QR y colócalo en la entrada principal de tu oficina o centro de trabajo. Los empleados solo podrán fichar si escanean físicamente este código exacto y se encuentran a menos de 50 metros por GPS.</p>
+                    <button onclick="window.print()" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-4 py-2 rounded-xl transition flex items-center gap-2">
+                        <i class="fa-solid fa-print"></i> Imprimir Código QR para Oficina
+                    </button>
+                </div>
+                <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center">
+                    <div id="qrCodeContainer" class="bg-white p-3 rounded-xl shadow-sm mb-2"></div>
+                    <span class="text-[10px] text-slate-400 font-mono">ID SEDE: MADRID-HQ-01</span>
+                </div>
+            </div>
+
+            <!-- Tabla de Control de Asistencia en Tiempo Real -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-5 border-b border-slate-100 flex justify-between items-center">
+                    <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
+                        <i class="fa-solid fa-list-check text-indigo-600"></i> Registro de Asistencia en Directo (Cloud)
+                    </h3>
+                    <button onclick="cargarRegistrosCloud()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition">
+                        <i class="fa-solid fa-rotate mr-1"></i> Refrescar
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs text-slate-600">
+                        <thead class="bg-slate-50 text-slate-400 uppercase font-semibold border-b border-slate-100">
+                            <tr>
+                                <th class="px-5 py-3">Empleado</th>
+                                <th class="px-5 py-3">Evento</th>
+                                <th class="px-5 py-3">Hora</th>
+                                <th class="px-5 py-3">Ubicación GPS</th>
+                                <th class="px-5 py-3">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tablaRegistrosJefe" class="divide-y divide-slate-100">
+                            <tr>
+                                <td colspan="5" class="px-5 py-6 text-center text-slate-400 italic">Sincronizando con base de datos en la nube...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= REPORTES SEMANALES ================= -->
+        <div id="view-reportes" class="space-y-6 hidden">
+            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-800"><i class="fa-solid fa-calendar-week text-indigo-600 mr-2"></i>Reportes y Horas Semanales</h3>
+                        <p class="text-xs text-slate-500">Resumen consolidado de horas netas trabajadas y control de descansos de la plantilla.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <select class="bg-slate-100 border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-700 font-medium">
+                            <option>Semana Actual (Sep 14 - Sep 20)</option>
+                            <option>Semana Anterior (Sep 07 - Sep 13)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs text-slate-600">
+                        <thead class="bg-slate-50 text-slate-400 uppercase font-semibold border-b border-slate-100">
+                            <tr>
+                                <th class="px-5 py-3">Colaborador</th>
+                                <th class="px-5 py-3">Días Asistidos</th>
+                                <th class="px-5 py-3">Promedio Entrada</th>
+                                <th class="px-5 py-3">Horas Netas Acumuladas</th>
+                                <th class="px-5 py-3">Estatus Semanal</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            <tr>
+                                <td class="px-5 py-4 font-semibold text-slate-800">Ana Martínez</td>
+                                <td class="px-5 py-4">5 / 5 días</td>
+                                <td class="px-5 py-4 font-mono">08:58 AM</td>
+                                <td class="px-5 py-4 font-bold text-indigo-600">40.5 hrs</td>
+                                <td class="px-5 py-4"><span class="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-medium">Completado</span></td>
+                            </tr>
+                            <tr>
+                                <td class="px-5 py-4 font-semibold text-slate-800">Carlos Ruiz</td>
+                                <td class="px-5 py-4">4 / 5 días</td>
+                                <td class="px-5 py-4 font-mono">09:15 AM</td>
+                                <td class="px-5 py-4 font-bold text-indigo-600">36.2 hrs</td>
+                                <td class="px-5 py-4"><span class="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-medium">Completado</span></td>
+                            </tr>
+                            <tr>
+                                <td class="px-5 py-4 font-semibold text-slate-800">Sofía Gómez</td>
+                                <td class="px-5 py-4">5 / 5 días</td>
+                                <td class="px-5 py-4 font-mono">08:50 AM</td>
+                                <td class="px-5 py-4 font-bold text-indigo-600">41.0 hrs</td>
+                                <td class="px-5 py-4"><span class="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-medium">Completado</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
+        GeoQR Cloud Asistencia PWA &bull; Sistema Seguro de Fichaje con Geolocalización
+    </footer>
+
+    <!-- MODAL INSTRUCCIONES PWA -->
+    <div id="pwaModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4 text-center">
+            <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-xl">
+                <i class="fa-solid fa-mobile-screen-button"></i>
+            </div>
+            <h3 class="font-bold text-base text-slate-800">Instalar Aplicación en tu Dispositivo</h3>
+            <p class="text-xs text-slate-600 leading-relaxed text-left">
+                Lleva el control de asistencia en tu pantalla de inicio como una app nativa, con acceso rápido y funcionamiento fluido.
+            </p>
+            <div class="bg-slate-50 p-3 rounded-xl text-xs text-slate-700 text-left space-y-2 border border-slate-100">
+                <p class="font-semibold text-slate-800">Instalación en Android o Escritorio:</p>
+                <p>1. Pulsa el botón superior <b>"Instalar App"</b> si aparece disponible, o abre el menú de opciones de tu navegador (los 3 puntos verticales).</p>
+                <p>2. Selecciona <b>"Instalar aplicación"</b> o <b>"Añadir a la pantalla principal"</b>.</p>
+                <p>3. Confirma la instalación para tener acceso instantáneo sin navegador.</p>
+            </div>
+            <button onclick="cerrarModalInstalacion()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs py-2.5 rounded-xl transition">
+                Entendido
+            </button>
+        </div>
+    </div>
+
+    <!-- SCRIPT DE FUNCIONAMIENTO Y PWA -->
+    <script>
+        let registrosCloud = [
+            { id: 1, empleado: 'Ana Martínez (Diseñadora)', tipo: 'Entrada', hora: '08:58 AM', gps: 'Madrid HQ (10m)', estado: 'Verificado GPS' },
+            { id: 2, empleado: 'Carlos Ruiz (Desarrollador)', tipo: 'Entrada', hora: '09:12 AM', gps: 'Madrid HQ (15m)', estado: 'Verificado GPS' },
+            { id: 3, empleado: 'Sofía Gómez (Marketing)', tipo: 'Entrada', hora: '08:50 AM', gps: 'Madrid HQ (8m)', estado: 'Verificado GPS' }
+        ];
+
+        // Inicializar Código QR de Sede
+        window.addEventListener('DOMContentLoaded', () => {
+            const qrContainer = document.getElementById('qrCodeContainer');
+            if (qrContainer) {
+                qrContainer.innerHTML = "";
+                try {
+                    const qr = qrcode(0, 'M');
+                    qr.addData('GEOQR_SEDE_MADRID_HQ_SECURE_TOKEN_2026');
+                    qr.make();
+                    qrContainer.innerHTML = qr.createImgTag(4, 4);
+                    const img = qrContainer.querySelector('img');
+                    if (img) img.className = "mx-auto rounded-lg";
+                } catch(e) {
+                    qrContainer.innerHTML = "<p class='text-xs text-slate-400'>QR Sede Madrid</p>";
+                }
+            }
+            renderRegistros();
+            
+            // Detección PWA Install Prompt
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                window.deferredPrompt = e;
+                document.getElementById('btnInstall').classList.remove('hidden');
+            });
+        });
+
+        function switchTab(tab) {
+            document.getElementById('view-empleado').classList.add('hidden');
+            document.getElementById('view-jefe').classList.add('hidden');
+            document.getElementById('view-reportes').classList.add('hidden');
+
+            document.getElementById('tabEmp').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white";
+            document.getElementById('tabJefe').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white";
+            document.getElementById('tabRep').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white";
+
+            if (tab === 'empleado') {
+                document.getElementById('view-empleado').classList.remove('hidden');
+                document.getElementById('tabEmp').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm";
+            } else if (tab === 'jefe') {
+                document.getElementById('view-jefe').classList.remove('hidden');
+                document.getElementById('tabJefe').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm";
+                cargarRegistrosCloud();
+            } else if (tab === 'reportes') {
+                document.getElementById('view-reportes').classList.remove('hidden');
+                document.getElementById('tabRep').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm";
+            }
+        }
+
+        function cambiarEmpleado() {
+            const select = document.getElementById('selectEmpleado');
+            const nombre = select.value;
+            const iniciales = nombre.split(' ').map(n => n[0]).join('').substring(0, 2);
+            document.getElementById('empAvatar').innerText = iniciales;
+            
+            if(nombre.includes('Ana')) document.getElementById('empDepto').innerText = "Departamento de Diseño";
+            else if(nombre.includes('Carlos')) document.getElementById('empDepto').innerText = "Departamento de Desarrollo";
+            else document.getElementById('empDepto').innerText = "Departamento de Marketing";
+        }
+
+        function verificarGPS() {
+            alert("Ubicación GPS verificada correctamente con satélites. Te encuentras en el radio permitido de la sede.");
+        }
+
+        function toggleSimularGPS() {
+            const fueraRango = document.getElementById('toggleFueraRango').checked;
+            const dist = document.getElementById('gpsDistancia');
+            if (fueraRango) {
+                dist.innerText = "2.4 km (Fuera de Sede)";
+                dist.className = "font-bold text-rose-600";
+            } else {
+                dist.innerText = "10 metros (En Sede)";
+                dist.className = "font-bold text-emerald-600";
+            }
+        }
+
+        function fichar(tipo) {
+            const fueraRango = document.getElementById('toggleFueraRango').checked;
+            if (fueraRango) {
+                alert("❌ ACCESO DENEGADO: Te encuentras fuera del radio geográfico autorizado de la sede. Acércate a la oficina para fichar.");
+                return;
+            }
+
+            const empleadoActual = document.getElementById('selectEmpleado').value;
+            const ahora = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            registrosCloud.unshift({
+                id: Date.now(),
+                empleado: empleadoActual,
+                tipo: tipo,
+                hora: ahora,
+                gps: 'Madrid HQ (12m)',
+                estado: 'Verificado GPS'
+            });
+
+            // Actualizar Badge Estado Empleado
+            const badge = document.getElementById('empEstadoBadge');
+            badge.className = "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800";
+            badge.innerHTML = `<span class=\"w-2 h-2 mr-1.5 bg-emerald-500 rounded-full\"></span> Fichado: ${tipo} (${ahora})`;
+
+            renderRegistros();
+            alert(`¡Fichaje de "${tipo}" registrado exitosamente en la nube a las ${ahora}!`);
+        }
+
+        function renderRegistros() {
+            const timeline = document.getElementById('liveTimeline');
+            if(registrosCloud.length === 0) {
+                timeline.innerHTML = `<p class="text-xs text-slate-400 italic text-center py-4">No hay registros hoy todavía.</p>`;
+                return;
+            }
+
+            timeline.innerHTML = registrosCloud.slice(0, 3).map(r => `
+                <div class="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
+                    <div>
+                        <span class="font-semibold text-slate-800 block">${r.tipo}</span>
+                        <span class="text-[10px] text-slate-400">${r.empleado}</span>
+                    </div>
+                    <span class="font-mono font-medium text-indigo-600">${r.hora}</span>
+                </div>
+            `).join('');
+        }
+
+        function cargarRegistrosCloud() {
+            const tbody = document.getElementById('tablaRegistrosJefe');
+            document.getElementById('statFichajes').innerText = registrosCloud.length;
+            
+            tbody.innerHTML = registrosCloud.map(r => `
+                <tr class="hover:bg-slate-50">
+                    <td class="px-5 py-3 font-semibold text-slate-800">${r.empleado}</td>
+                    <td class="px-5 py-3"><span class="px-2 py-0.5 rounded-md font-medium ${r.tipo === 'Entrada' ? 'bg-emerald-50 text-emerald-700' : r.tipo === 'Salida' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}">${r.tipo}</span></td>
+                    <td class="px-5 py-3 font-mono">${r.hora}</td>
+                    <td class="px-5 py-3 text-slate-500">${r.gps}</td>
+                    <td class="px-5 py-3"><span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-semibold"><i class="fa-solid fa-check mr-1"></i>${r.estado}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        // Funciones de Cámara / Escáner QR Real
+        let html5QrCode = null;
+        function iniciarEscaneoQR() {
+            document.getElementById('scanner-placeholder').classList.add('hidden');
+            document.getElementById('scanner-container').classList.remove('hidden');
+            
+            html5QrCode = new Html5Qrcode("reader");
+            html5QrCode.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 200, height: 200 } },
+                (decodedText) => {
+                    if(decodedText.includes('GEOQR_SEDE')) {
+                        alert("¡Código QR de Sede reconocido correctamente!");
+                        cerrarCamara();
+                        fichar('Entrada');
+                    } else {
+                        alert("Código QR no válido para esta empresa.");
+                    }
+                },
+                (errorMessage) => {}
+            ).catch(err => {
+                alert("No se pudo iniciar la cámara. Asegúrate de otorgar permisos.");
+                cerrarCamara();
+            });
+        }
+
+        function cerrarCamara() {
+            if(html5QrCode) {
+                html5QrCode.stop().then(() => {
+                    document.getElementById('scanner-container').classList.add('hidden');
+                    document.getElementById('scanner-placeholder').classList.remove('hidden');
+                }).catch(err => {
+                    document.getElementById('scanner-container').classList.add('hidden');
+                    document.getElementById('scanner-placeholder').classList.remove('hidden');
+                });
+            } else {
+                document.getElementById('scanner-container').classList.add('hidden');
+                document.getElementById('scanner-placeholder').classList.remove('hidden');
+            }
+        }
+
+        function showInstallInstructions() {
+            if (window.deferredPrompt) {
+                window.deferredPrompt.prompt();
+                window.deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        document.getElementById('btnInstall').classList.add('hidden');
+                    }
+                    window.deferredPrompt = null;
+                });
+            } else {
+                document.getElementById('pwaModal').classList.remove('hidden');
+            }
+        }
+
+        function cerrarModalInstalacion() {
+            document.getElementById('pwaModal').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
