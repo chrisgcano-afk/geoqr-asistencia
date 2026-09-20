@@ -374,7 +374,7 @@
     <!-- FIREBASE SDKs (CDN) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         // Your web app's Firebase configuration
@@ -397,6 +397,8 @@
         window.firebaseAuth = auth;
         window.firebaseGoogleProvider = googleProvider;
         window.firebaseSignInWithPopup = signInWithPopup;
+        window.firebaseSignInWithRedirect = signInWithRedirect;
+        window.firebaseGetRedirectResult = getRedirectResult;
         window.firebaseSignInWithEmailAndPassword = signInWithEmailAndPassword;
         window.firebaseCreateUserWithEmailAndPassword = createUserWithEmailAndPassword;
         window.firebaseSignOut = signOut;
@@ -410,6 +412,11 @@
         window.geoSignIn = signInWithEmailAndPassword;
         window.geoSignOut = signOut;
         window.GEOQR_ADMIN_EMAIL = "chrisgcano@gmail.com";
+
+        getRedirectResult(auth).catch((error) => {
+            console.error('Google redirect sign-in error:', error);
+            setTimeout(() => { if (typeof showAuthError === 'function') showAuthError(error.message || 'Google sign-in failed.'); }, 0);
+        });
 
         onAuthStateChanged(auth, (user) => {
             window.currentGeoQRUser = user || null;
@@ -437,58 +444,15 @@
         window.currentGeoUser = null;
 
         function isAdminUser() {
-            return !!window.currentGeoUser && window.currentGeoUser.email.toLowerCase() === window.GEOQR_ADMIN_EMAIL;
+            return !!window.currentGeoQRUser && (window.currentGeoQRUser.email || '').toLowerCase() === (window.GEOQR_ADMIN_EMAIL || '').toLowerCase();
         }
 
         function employeeLabel() {
-            if (!window.currentGeoUser) return 'Unknown employee';
-            return window.currentGeoUser.displayName || window.currentGeoUser.email;
+            const user = window.currentGeoQRUser;
+            if (!user) return 'Unknown employee';
+            return user.displayName || user.email || 'Employee';
         }
 
-        function applyAuthState(user) {
-            const gate = document.getElementById('authGate');
-            const userBox = document.getElementById('authUserBox');
-            const email = document.getElementById('authUserEmail');
-            const adminEls = document.querySelectorAll('[data-admin-only="true"]');
-            if (!user) {
-                gate.classList.remove('hidden');
-                userBox.classList.add('hidden');
-                adminEls.forEach(el => el.classList.add('hidden'));
-                return;
-            }
-            gate.classList.add('hidden');
-            userBox.classList.remove('hidden');
-            email.textContent = user.email;
-            adminEls.forEach(el => el.classList.toggle('hidden', !isAdminUser()));
-            const emp = document.getElementById('selectEmployee');
-            if (emp) emp.textContent = employeeLabel();
-            const avatar = document.getElementById('empAvatar');
-            if (avatar) avatar.textContent = (user.email || 'U').substring(0,2).toUpperCase();
-            document.getElementById('empDept').textContent = isAdminUser() ? 'Administrator' : 'Employee';
-            switchTab('employee');
-        }
-
-        document.addEventListener('submit', async (e) => {
-            if (e.target.id !== 'loginForm') return;
-            e.preventDefault();
-            const error = document.getElementById('loginError');
-            const btn = document.getElementById('loginButton');
-            error.textContent = '';
-            btn.disabled = true;
-            btn.textContent = 'Signing in...';
-            try {
-                await window.geoSignIn(window.geoAuth, document.getElementById('loginEmail').value.trim(), document.getElementById('loginPassword').value);
-            } catch (err) {
-                error.textContent = 'Sign-in failed. Check your email/password and make sure the account exists in Firebase Authentication.';
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Sign In';
-            }
-        });
-
-        async function signOutGeoQR() {
-            if (window.geoAuth && window.geoSignOut) await window.geoSignOut(window.geoAuth);
-        }
         const OFFICE_RADIUS_METERS = 50;
         let lastGpsVerification = null;
 
