@@ -443,6 +443,88 @@
         window.globalCloudLogs = [];
         window.currentGeoUser = null;
 
+        function showAuthError(message) {
+            const el = document.getElementById('authError');
+            if (!el) return;
+            el.textContent = message;
+            el.classList.remove('hidden');
+        }
+
+        function updateAuthUI(user) {
+            const gate = document.getElementById('authGate');
+            const box = document.getElementById('signedUserBox');
+            const logout = document.getElementById('btnLogout');
+            if (!gate) return;
+            if (user) {
+                gate.classList.add('hidden');
+                if (box) box.classList.remove('hidden');
+                if (logout) logout.classList.remove('hidden');
+                const name = user.displayName || (user.email ? user.email.split('@')[0] : 'Employee');
+                const n = document.getElementById('signedUserName');
+                const em = document.getElementById('signedUserEmail');
+                const emp = document.getElementById('selectEmployee');
+                const dept = document.getElementById('empDept');
+                const avatar = document.getElementById('empAvatar');
+                if (n) n.textContent = name;
+                if (em) em.textContent = user.email || '';
+                if (emp) emp.textContent = name;
+                if (dept) dept.textContent = isAdminUser() ? 'Administrator' : (user.email || 'Authenticated employee');
+                if (avatar) avatar.textContent = name.split(/\s+/).map(x=>x[0]).join('').substring(0,2).toUpperCase() || 'U';
+                document.querySelectorAll('[data-admin-only="true"]').forEach(el => el.classList.toggle('hidden', !isAdminUser()));
+            } else {
+                gate.classList.remove('hidden');
+                if (box) box.classList.add('hidden');
+                if (logout) logout.classList.add('hidden');
+            }
+        }
+
+        async function loginWithGoogle() {
+            try {
+                const e = document.getElementById('authError'); if (e) e.classList.add('hidden');
+                if (!window.firebaseAuth || !window.firebaseGoogleProvider) return showAuthError('Firebase is still loading. Try again in a moment.');
+                const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+                if (mobile) await window.firebaseSignInWithRedirect(window.firebaseAuth, window.firebaseGoogleProvider);
+                else await window.firebaseSignInWithPopup(window.firebaseAuth, window.firebaseGoogleProvider);
+            } catch (err) { showAuthError(err?.message || 'Google sign-in failed.'); }
+        }
+
+        async function loginWithEmail() {
+            try {
+                const email = document.getElementById('authEmail').value.trim();
+                const password = document.getElementById('authPassword').value;
+                if (!email || !password) return showAuthError('Enter your email and password.');
+                await window.firebaseSignInWithEmailAndPassword(window.firebaseAuth, email, password);
+            } catch (err) { showAuthError(err?.message || 'Sign-in failed.'); }
+        }
+
+        async function registerWithEmail() {
+            try {
+                const email = document.getElementById('authEmail').value.trim();
+                const password = document.getElementById('authPassword').value;
+                if (!email || password.length < 6) return showAuthError('Enter a valid email and a password with at least 6 characters.');
+                await window.firebaseCreateUserWithEmailAndPassword(window.firebaseAuth, email, password);
+            } catch (err) { showAuthError(err?.message || 'Account creation failed.'); }
+        }
+
+        async function logoutGeoQR() {
+            try { await window.firebaseSignOut(window.firebaseAuth); }
+            catch (err) { alert('Could not sign out. Please try again.'); }
+        }
+
+        function bindAuthButtons() {
+            const bindings = [
+                ['googleLoginBtn', loginWithGoogle],
+                ['emailLoginBtn', loginWithEmail],
+                ['registerBtn', registerWithEmail]
+            ];
+            bindings.forEach(([id, fn]) => {
+                const el = document.getElementById(id);
+                if (el && !el.dataset.bound) { el.dataset.bound='1'; el.addEventListener('click', fn); }
+            });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindAuthButtons);
+        else bindAuthButtons();
+
         function isAdminUser() {
             return !!window.currentGeoQRUser && (window.currentGeoQRUser.email || '').toLowerCase() === (window.GEOQR_ADMIN_EMAIL || '').toLowerCase();
         }
