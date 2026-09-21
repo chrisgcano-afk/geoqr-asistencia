@@ -136,17 +136,23 @@
                         </div>
 
                         <!-- Check-in Action Buttons -->
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
-                            <button onclick="checkIn('Check-in')" class="bg-emerald-600 hover:bg-emerald-700 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
+                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-6">
+                            <button id="btnCheckIn" onclick="recordAttendance('Check-in')" class="bg-emerald-600 hover:bg-emerald-700 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
                                 <i class="fa-solid fa-right-to-bracket text-base"></i> Check-in
                             </button>
-                            <button onclick="checkIn('Break')" class="bg-amber-500 hover:bg-amber-600 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
+                            <button id="btnBreakStart" onclick="recordAttendance('Break Start')" class="bg-amber-500 hover:bg-amber-600 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
                                 <i class="fa-solid fa-mug-hot text-base"></i> Start Break
                             </button>
-                            <button onclick="checkIn('Lunch')" class="bg-blue-600 hover:bg-blue-700 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
-                                <i class="fa-solid fa-utensils text-base"></i> Lunch Time
+                            <button id="btnBreakEnd" onclick="recordAttendance('Break End')" class="bg-amber-600 hover:bg-amber-700 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
+                                <i class="fa-solid fa-play text-base"></i> End Break
                             </button>
-                            <button onclick="checkIn('Check-out')" class="bg-rose-600 hover:bg-rose-700 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
+                            <button id="btnLunchStart" onclick="recordAttendance('Lunch Start')" class="bg-blue-600 hover:bg-blue-700 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
+                                <i class="fa-solid fa-utensils text-base"></i> Start Lunch
+                            </button>
+                            <button id="btnLunchEnd" onclick="recordAttendance('Lunch End')" class="bg-blue-700 hover:bg-blue-800 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
+                                <i class="fa-solid fa-play text-base"></i> End Lunch
+                            </button>
+                            <button id="btnCheckOut" onclick="recordAttendance('Check-out')" class="bg-rose-600 hover:bg-rose-700 text-white p-3.5 rounded-xl font-semibold text-xs transition shadow-sm flex flex-col items-center gap-1">
                                 <i class="fa-solid fa-right-from-bracket text-base"></i> Check-out
                             </button>
                         </div>
@@ -714,6 +720,71 @@
             }
         }
 
+        function normalizedEventType(type) {
+            if (type === 'Break') return 'Break Start';
+            if (type === 'Lunch') return 'Lunch Start';
+            return type;
+        }
+
+        function currentUserLogs() {
+            const uid = window.currentGeoQRUser?.uid;
+            const email = (window.currentGeoQRUser?.email || '').toLowerCase();
+            return (window.globalCloudLogs || []).filter(r =>
+                (uid && r.employeeUid === uid) ||
+                (!r.employeeUid && email && (r.employeeEmail || '').toLowerCase() === email) ||
+                (!r.employeeUid && !r.employeeEmail && r.employee === employeeLabel())
+            );
+        }
+
+        function getAttendanceState() {
+            const logs = currentUserLogs();
+            if (!logs.length) return 'OFF';
+            const latest = normalizedEventType(logs[0].type);
+            if (latest === 'Check-out') return 'OFF';
+            if (latest === 'Break Start') return 'BREAK';
+            if (latest === 'Lunch Start') return 'LUNCH';
+            return 'WORKING';
+        }
+
+        function setActionButton(id, enabled) {
+            const b = document.getElementById(id);
+            if (!b) return;
+            b.disabled = !enabled;
+            b.classList.toggle('opacity-40', !enabled);
+            b.classList.toggle('cursor-not-allowed', !enabled);
+        }
+
+        function updateAttendanceButtons() {
+            const state = getAttendanceState();
+            setActionButton('btnCheckIn', state === 'OFF');
+            setActionButton('btnBreakStart', state === 'WORKING');
+            setActionButton('btnBreakEnd', state === 'BREAK');
+            setActionButton('btnLunchStart', state === 'WORKING');
+            setActionButton('btnLunchEnd', state === 'LUNCH');
+            setActionButton('btnCheckOut', state === 'WORKING');
+            const badge = document.getElementById('empStatusBadge');
+            if (badge) {
+                const labels = {OFF:'Not checked in', WORKING:'Working', BREAK:'On break', LUNCH:'At lunch'};
+                badge.innerHTML = `<span class="w-2 h-2 mr-1.5 bg-emerald-500 rounded-full"></span> ${labels[state]}`;
+            }
+        }
+
+        async function recordAttendance(type) {
+            const state = getAttendanceState();
+            const allowed = {
+                OFF: ['Check-in'],
+                WORKING: ['Break Start','Lunch Start','Check-out'],
+                BREAK: ['Break End'],
+                LUNCH: ['Lunch End']
+            };
+            if (!(allowed[state] || []).includes(type)) {
+                alert('This action is not available in your current attendance status.');
+                updateAttendanceButtons();
+                return;
+            }
+            await checkIn(type);
+        }
+
         async function checkIn(type) {
             const gps = await verifyGPS(false);
             if (!gps) {
@@ -747,11 +818,6 @@
                     });
                 }
 
-                // Update Employee Status Badge
-                const badge = document.getElementById('empStatusBadge');
-                badge.className = "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800";
-                badge.innerHTML = `<span class=\"w-2 h-2 mr-1.5 bg-emerald-500 rounded-full\"></span> Checked: ${type} (${nowTime})`;
-
                 alert(`Successfully registered "${type}" to Firebase Cloud at ${nowTime}!`);
             } catch (e) {
                 console.error("Error adding document: ", e);
@@ -778,6 +844,7 @@
 
             document.getElementById('statCheckins').innerText = logs.length;
             loadCloudLogsToTable();
+            updateAttendanceButtons();
         }
 
         function loadCloudLogsToTable() {
@@ -814,7 +881,7 @@
                     if(decodedText.includes('GEOQR_SEDE')) {
                         alert("HQ Office QR Code successfully recognized!");
                         closeCamera();
-                        checkIn('Check-in');
+                        recordAttendance('Check-in');
                     } else {
                         alert("Invalid QR code for this company.");
                     }
