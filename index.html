@@ -316,10 +316,9 @@
                         <p class="text-xs text-slate-500">Consolidated summary of net hours worked and staff break tracking.</p>
                     </div>
                     <div class="flex items-center gap-2">
-                        <select class="bg-slate-100 border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-700 font-medium">
-                            <option>Current Week (Sep 14 - Sep 20)</option>
-                            <option>Previous Week (Sep 07 - Sep 13)</option>
-                        </select>
+                        <button onclick="changeReportWeek(-1)" class="bg-slate-100 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-700"><i class="fa-solid fa-chevron-left"></i></button>
+                        <div id="weeklyRangeLabel" class="bg-slate-100 border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-700 font-medium">Current Week</div>
+                        <button id="nextWeekBtn" onclick="changeReportWeek(1)" class="bg-slate-100 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-700"><i class="fa-solid fa-chevron-right"></i></button>
                     </div>
                 </div>
 
@@ -329,13 +328,16 @@
                             <tr>
                                 <th class="px-5 py-3">Collaborator</th>
                                 <th class="px-5 py-3">Days Attended</th>
-                                <th class="px-5 py-3">Avg Check-in</th>
-                                <th class="px-5 py-3">Accumulated Net Hours</th>
-                                <th class="px-5 py-3">Weekly Status</th>
+                                <th class="px-5 py-3">First / Last</th>
+                                <th class="px-5 py-3">Break</th>
+                                <th class="px-5 py-3">Lunch</th>
+                                <th class="px-5 py-3">Gross Hours</th>
+                                <th class="px-5 py-3">Net Hours</th>
+                                <th class="px-5 py-3">Status</th>
                             </tr>
                         </thead>
                         <tbody id="weeklyReportBody" class="divide-y divide-slate-100">
-                            <tr><td colspan="5" class="px-5 py-6 text-center text-slate-400 italic">Calculating hours from Firebase...</td></tr>
+                            <tr><td colspan="8" class="px-5 py-6 text-center text-slate-400 italic">Calculating hours from Firebase...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -875,6 +877,20 @@
             return {netMs,breakMs:totalBreakMs,lunchMs:totalLunchMs,shifts,open:!!shiftStart};
         }
 
+        let weeklyReportOffset = 0;
+
+        function weekBounds(offset = 0) {
+            const start = new Date(); start.setHours(0,0,0,0);
+            start.setDate(start.getDate()-((start.getDay()+6)%7)+(offset*7));
+            const end = new Date(start); end.setDate(end.getDate()+7);
+            return {start,end};
+        }
+
+        function changeReportWeek(delta) {
+            weeklyReportOffset = Math.min(0, weeklyReportOffset + delta);
+            updateHoursSummaries();
+        }
+
         function updateHoursSummaries() {
             const mine=currentUserLogs();
             const today=new Date(); today.setHours(0,0,0,0);
@@ -887,26 +903,40 @@
 
             const body=document.getElementById('weeklyReportBody');
             if(!body) return;
-            const start=new Date(); start.setHours(0,0,0,0); start.setDate(start.getDate()-((start.getDay()+6)%7));
+            const {start,end}=weekBounds(weeklyReportOffset);
+            const label=document.getElementById('weeklyRangeLabel');
+            if(label) label.textContent=`${start.toLocaleDateString([], {month:'short',day:'numeric'})} – ${new Date(end-1).toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'})}`;
+            const next=document.getElementById('nextWeekBtn');
+            if(next){ next.disabled=weeklyReportOffset>=0; next.classList.toggle('opacity-40',weeklyReportOffset>=0); }
+
             const groups={};
             (window.globalCloudLogs||[]).forEach(r=>{
-                const dt=logDate(r); if(!dt||dt<start) return;
+                const dt=logDate(r); if(!dt||dt<start||dt>=end) return;
                 const key=r.employeeUid||r.employeeEmail||r.employee||'Unknown';
                 if(!groups[key]) groups[key]={name:r.employee||r.employeeEmail||'Employee',logs:[]};
                 groups[key].logs.push(r);
             });
             const rows=Object.values(groups).map(g=>{
                 const stats=calculateSessions(g.logs);
-                const checkins=g.logs.filter(r=>normalizedEventType(r.type)==='Check-in'&&logDate(r));
+                const sorted=[...g.logs].filter(r=>logDate(r)).sort((a,b)=>logDate(a)-logDate(b));
+                const checkins=sorted.filter(r=>normalizedEventType(r.type)==='Check-in');
+                const checkouts=sorted.filter(r=>normalizedEventType(r.type)==='Check-out');
                 const days=new Set(checkins.map(r=>logDate(r).toDateString())).size;
-                let avg='—';
-                if(checkins.length){
-                    const mins=Math.round(checkins.reduce((s,r)=>{const x=logDate(r);return s+x.getHours()*60+x.getMinutes();},0)/checkins.length);
-                    avg=new Date(2000,0,1,Math.floor(mins/60),mins%60).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-                }
-                return `<tr><td class="px-5 py-4 font-semibold text-slate-800">${g.name}</td><td class="px-5 py-4">${days} day${days===1?'':'s'}</td><td class="px-5 py-4 font-mono">${avg}</td><td class="px-5 py-4 font-bold text-indigo-600">${durationLabel(stats.netMs)}</td><td class="px-5 py-4"><span class="${stats.open?'bg-amber-100 text-amber-800':'bg-emerald-100 text-emerald-800'} px-2.5 py-1 rounded-full font-medium">${stats.open?'In Progress':'Closed'}</span></td></tr>`;
+                const first=checkins.length?logDate(checkins[0]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'—';
+                const last=checkouts.length?logDate(checkouts[checkouts.length-1]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'—';
+                const grossMs=stats.netMs+stats.breakMs+stats.lunchMs;
+                return `<tr>
+                    <td class="px-5 py-4 font-semibold text-slate-800">${g.name}</td>
+                    <td class="px-5 py-4">${days} day${days===1?'':'s'}</td>
+                    <td class="px-5 py-4 font-mono whitespace-nowrap">${first} / ${last}</td>
+                    <td class="px-5 py-4 whitespace-nowrap">${durationLabel(stats.breakMs)}</td>
+                    <td class="px-5 py-4 whitespace-nowrap">${durationLabel(stats.lunchMs)}</td>
+                    <td class="px-5 py-4 font-semibold whitespace-nowrap">${durationLabel(grossMs)}</td>
+                    <td class="px-5 py-4 font-bold text-indigo-600 whitespace-nowrap">${durationLabel(stats.netMs)}</td>
+                    <td class="px-5 py-4"><span class="${stats.open?'bg-amber-100 text-amber-800':'bg-emerald-100 text-emerald-800'} px-2.5 py-1 rounded-full font-medium whitespace-nowrap">${stats.open?'In Progress':'Closed'}</span></td>
+                </tr>`;
             });
-            body.innerHTML=rows.join('')||'<tr><td colspan="5" class="px-5 py-6 text-center text-slate-400 italic">No attendance records for this week.</td></tr>';
+            body.innerHTML=rows.join('')||'<tr><td colspan="8" class="px-5 py-6 text-center text-slate-400 italic">No attendance records for this week.</td></tr>';
         }
 
         function renderLogsFromCloud(logs) {
