@@ -449,11 +449,16 @@
             setTimeout(() => { if (typeof showAuthError === 'function') showAuthError(error.message || 'Google sign-in failed.'); }, 0);
         });
 
-        onAuthStateChanged(auth, (user) => {
+        onAuthStateChanged(auth, async (user) => {
             window.currentGeoQRUser = user || null;
             window.currentGeoUser = user || null;
-            if (typeof updateAuthUI === 'function') updateAuthUI(user || null);
-            if (user && typeof loadOfficeFromCloud === 'function') loadOfficeFromCloud();
+            window.currentGeoQRProfile = null;
+            if (user && typeof resolveSignedInProfile === 'function') {
+                await resolveSignedInProfile(user);
+            } else if (typeof updateAuthUI === 'function') {
+                updateAuthUI(null);
+            }
+            if (user && window.currentGeoQRUser && typeof loadOfficeFromCloud === 'function') loadOfficeFromCloud();
             if (typeof updateAttendanceButtons === 'function') updateAttendanceButtons();
         });
 
@@ -483,31 +488,68 @@
             el.classList.remove('hidden');
         }
 
+        async function resolveSignedInProfile(user) {
+            const email=(user?.email || '').trim().toLowerCase();
+            if (!email) {
+                showAuthError('This account does not have an email address.');
+                await window.firebaseSignOut(window.firebaseAuth);
+                return;
+            }
+
+            // Bootstrap owner account remains the administrator.
+            if (email === (window.GEOQR_ADMIN_EMAIL || '').toLowerCase()) {
+                window.currentGeoQRProfile={name:user.displayName || 'Chris Cano',email,role:'manager',active:true,bootstrapAdmin:true};
+                updateAuthUI(user);
+                return;
+            }
+
+            try {
+                const ref=window.cloudDoc(window.cloudDb,'employees',email);
+                const snap=await window.cloudGetDoc(ref);
+                if (!snap.exists()) {
+                    await window.firebaseSignOut(window.firebaseAuth);
+                    setTimeout(()=>showAuthError('This account is not registered by your company administrator.'),50);
+                    return;
+                }
+                const profile={id:snap.id,...snap.data()};
+                if (profile.active === false) {
+                    await window.firebaseSignOut(window.firebaseAuth);
+                    setTimeout(()=>showAuthError('Your account has been deactivated. Contact your administrator.'),50);
+                    return;
+                }
+                window.currentGeoQRProfile=profile;
+                updateAuthUI(user);
+            } catch(err) {
+                console.error('Could not verify employee profile:',err);
+                await window.firebaseSignOut(window.firebaseAuth);
+                setTimeout(()=>showAuthError('We could not verify your company access. Please try again.'),50);
+            }
+        }
+
         function updateAuthUI(user) {
-            const gate = document.getElementById('authGate');
-            const box = document.getElementById('signedUserBox');
-            const logout = document.getElementById('btnLogout');
+            const gate=document.getElementById('authGate');
+            const box=document.getElementById('signedUserBox');
+            const logout=document.getElementById('btnLogout');
             if (!gate) return;
-            if (user) {
+            if (user && window.currentGeoQRProfile) {
                 gate.classList.add('hidden');
-                if (box) box.classList.remove('hidden');
-                if (logout) logout.classList.remove('hidden');
-                const name = user.displayName || (user.email ? user.email.split('@')[0] : 'Employee');
-                const n = document.getElementById('signedUserName');
-                const em = document.getElementById('signedUserEmail');
-                const emp = document.getElementById('selectEmployee');
-                const dept = document.getElementById('empDept');
-                const avatar = document.getElementById('empAvatar');
-                if (n) n.textContent = name;
-                if (em) em.textContent = user.email || '';
-                if (emp) emp.textContent = name;
-                if (dept) dept.textContent = isAdminUser() ? 'Administrator' : (user.email || 'Authenticated employee');
-                if (avatar) avatar.textContent = name.split(/\s+/).map(x=>x[0]).join('').substring(0,2).toUpperCase() || 'U';
-                document.querySelectorAll('[data-admin-only="true"]').forEach(el => el.classList.toggle('hidden', !isAdminUser()));
+                if(box) box.classList.remove('hidden');
+                if(logout) logout.classList.remove('hidden');
+                const profile=window.currentGeoQRProfile;
+                const name=profile.name || user.displayName || (user.email ? user.email.split('@')[0] : 'Employee');
+                const n=document.getElementById('signedUserName'), em=document.getElementById('signedUserEmail'), emp=document.getElementById('selectEmployee'), dept=document.getElementById('empDept'), avatar=document.getElementById('empAvatar');
+                if(n) n.textContent=name;
+                if(em) em.textContent=user.email || '';
+                if(emp) emp.textContent=name;
+                if(dept) dept.textContent=isAdminUser() ? 'Manager' : 'Employee';
+                if(avatar) avatar.textContent=name.split(/\s+/).map(x=>x[0]).join('').substring(0,2).toUpperCase() || 'U';
+                document.querySelectorAll('[data-admin-only="true"]').forEach(el=>el.classList.toggle('hidden',!isAdminUser()));
+                switchTab('employee');
             } else {
                 gate.classList.remove('hidden');
-                if (box) box.classList.add('hidden');
-                if (logout) logout.classList.add('hidden');
+                if(box) box.classList.add('hidden');
+                if(logout) logout.classList.add('hidden');
+                document.querySelectorAll('[data-admin-only="true"]').forEach(el=>el.classList.add('hidden'));
             }
         }
 
@@ -605,13 +647,14 @@
         }
 
         function isAdminUser() {
-            return !!window.currentGeoQRUser && (window.currentGeoQRUser.email || '').toLowerCase() === (window.GEOQR_ADMIN_EMAIL || '').toLowerCase();
+            const profile=window.currentGeoQRProfile;
+            return !!window.currentGeoQRUser && !!profile && profile.active !== false && (profile.role === 'manager' || profile.bootstrapAdmin === true);
         }
 
         function employeeLabel() {
             const user = window.currentGeoQRUser;
             if (!user) return 'Unknown employee';
-            return user.displayName || user.email || 'Employee';
+            return window.currentGeoQRProfile?.name || user.displayName || user.email || 'Employee';
         }
 
         const OFFICE_RADIUS_METERS = 50;
