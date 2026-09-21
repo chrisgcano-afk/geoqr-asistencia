@@ -779,20 +779,20 @@
             document.getElementById('view-reports').classList.add('hidden');
 
             document.getElementById('tabEmp').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white";
-            document.getElementById('tabBoss').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white";
-            document.getElementById('tabRep').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white";
+            document.getElementById('tabBoss').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white" + (isAdminUser() ? "" : " hidden");
+            document.getElementById('tabRep').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition text-indigo-100 hover:text-white" + (isAdminUser() ? "" : " hidden");
 
             if (tab === 'employee') {
                 document.getElementById('view-employee').classList.remove('hidden');
                 document.getElementById('tabEmp').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm";
             } else if (tab === 'boss') {
                 document.getElementById('view-boss').classList.remove('hidden');
-                document.getElementById('tabBoss').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm";
+                document.getElementById('tabBoss').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm" + (isAdminUser() ? "" : " hidden");
                 loadCloudLogsToTable();
                 loadEmployeeDirectory();
             } else if (tab === 'reports') {
                 document.getElementById('view-reports').classList.remove('hidden');
-                document.getElementById('tabRep').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm";
+                document.getElementById('tabRep').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm" + (isAdminUser() ? "" : " hidden");
             }
         }
 
