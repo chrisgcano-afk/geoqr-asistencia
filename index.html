@@ -263,6 +263,23 @@
                 </div>
             </div>
 
+            <!-- Employee Management -->
+            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+                <div class="mb-5">
+                    <span class="bg-indigo-50 text-indigo-700 text-xs font-semibold px-2.5 py-1 rounded-full"><i class="fa-solid fa-users-gear mr-1"></i> Employee Management</span>
+                    <h3 class="text-lg font-bold text-slate-800 mt-3">Company Employees</h3>
+                    <p class="text-xs text-slate-500 mt-1">Add employees to the company directory and assign their access role.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                    <input id="newEmployeeName" type="text" placeholder="Full name" class="border border-slate-300 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-200">
+                    <input id="newEmployeeEmail" type="email" placeholder="Email address" class="border border-slate-300 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-200">
+                    <select id="newEmployeeRole" class="border border-slate-300 rounded-xl px-3 py-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-200"><option value="employee">Employee</option><option value="manager">Manager</option></select>
+                    <button onclick="saveEmployeeProfile()" class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-4 py-2.5 text-sm font-semibold transition"><i class="fa-solid fa-user-plus mr-2"></i>Add Employee</button>
+                </div>
+                <p id="employeeManagerMessage" class="hidden"></p>
+                <div id="employeeDirectory" class="space-y-2"><div class="text-sm text-slate-400 italic py-3">Loading employee directory...</div></div>
+            </div>
+
             <!-- Office GPS Settings -->
             <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -420,6 +437,7 @@
         window.cloudServerTimestamp = serverTimestamp;
         window.cloudDoc = doc;
         window.cloudGetDoc = getDoc;
+        window.cloudGetDocs = getDocs;
         window.cloudSetDoc = setDoc;
         window.geoAuth = auth;
         window.geoSignIn = signInWithEmailAndPassword;
@@ -545,6 +563,45 @@
         else {
             bindAuthButtons();
             setTimeout(() => { if (typeof updateAttendanceButtons === 'function') updateAttendanceButtons(); }, 300);
+        }
+
+        function employeeDocId(email) { return (email || '').trim().toLowerCase(); }
+        function employeeManagerMessage(message, ok=true) {
+            const el=document.getElementById('employeeManagerMessage'); if(!el) return;
+            el.textContent=message;
+            el.className='text-xs rounded-lg px-3 py-2 mb-4 '+(ok?'bg-emerald-50 text-emerald-700':'bg-rose-50 text-rose-700');
+        }
+        async function loadEmployeeDirectory() {
+            const box=document.getElementById('employeeDirectory');
+            if(!box || !isAdminUser() || !window.cloudGetDocs) return;
+            try {
+                const snap=await window.cloudGetDocs(window.cloudCollection(window.cloudDb,'employees'));
+                const items=[]; snap.forEach(d=>items.push({id:d.id,...d.data()}));
+                items.sort((a,b)=>(a.name||a.email||'').localeCompare(b.name||b.email||''));
+                box.innerHTML=items.length?items.map(e=>`
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-slate-200 rounded-xl p-3 bg-slate-50">
+                        <div class="min-w-0"><div class="font-semibold text-sm text-slate-800">${e.name||'Unnamed employee'}</div><div class="text-xs text-slate-500 truncate">${e.email||e.id}</div></div>
+                        <div class="flex items-center gap-2">
+                            <span class="${e.active===false?'bg-slate-200 text-slate-600':e.role==='manager'?'bg-indigo-100 text-indigo-700':'bg-emerald-100 text-emerald-700'} px-2.5 py-1 rounded-full text-xs font-semibold">${e.active===false?'Inactive':(e.role==='manager'?'Manager':'Employee')}</span>
+                            <button onclick="toggleEmployeeActive('${e.id.replace(/'/g,"\\'")}', ${e.active===false?'true':'false'})" class="border border-slate-300 bg-white rounded-lg px-2.5 py-1 text-xs font-medium text-slate-600">${e.active===false?'Activate':'Deactivate'}</button>
+                        </div>
+                    </div>`).join(''):'<div class="text-sm text-slate-400 italic py-3">No employees have been added yet.</div>';
+            } catch(err) { console.error(err); box.innerHTML='<div class="text-sm text-rose-600 py-3">Could not load employees. Firestore permissions may need to be updated.</div>'; }
+        }
+        async function saveEmployeeProfile() {
+            if(!isAdminUser()) return alert('Administrator access required.');
+            const name=document.getElementById('newEmployeeName').value.trim(), email=document.getElementById('newEmployeeEmail').value.trim().toLowerCase(), role=document.getElementById('newEmployeeRole').value;
+            if(!name || !email || !email.includes('@')) return employeeManagerMessage('Enter a valid name and email address.',false);
+            try {
+                await window.cloudSetDoc(window.cloudDoc(window.cloudDb,'employees',employeeDocId(email)),{name,email,role,active:true,updatedAt:window.cloudServerTimestamp(),updatedBy:window.currentGeoQRUser.email},{merge:true});
+                document.getElementById('newEmployeeName').value=''; document.getElementById('newEmployeeEmail').value=''; document.getElementById('newEmployeeRole').value='employee';
+                employeeManagerMessage('Employee saved successfully.'); await loadEmployeeDirectory();
+            } catch(err) { console.error(err); employeeManagerMessage('Could not save employee. Firestore permissions may need to be updated.',false); }
+        }
+        async function toggleEmployeeActive(id, active) {
+            if(!isAdminUser()) return alert('Administrator access required.');
+            try { await window.cloudSetDoc(window.cloudDoc(window.cloudDb,'employees',id),{active,updatedAt:window.cloudServerTimestamp(),updatedBy:window.currentGeoQRUser.email},{merge:true}); await loadEmployeeDirectory(); }
+            catch(err) { console.error(err); employeeManagerMessage('Could not update employee status.',false); }
         }
 
         function isAdminUser() {
@@ -689,6 +746,7 @@
                 document.getElementById('view-boss').classList.remove('hidden');
                 document.getElementById('tabBoss').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm";
                 loadCloudLogsToTable();
+                loadEmployeeDirectory();
             } else if (tab === 'reports') {
                 document.getElementById('view-reports').classList.remove('hidden');
                 document.getElementById('tabRep').className = "px-3 py-1.5 rounded-lg text-xs font-medium transition bg-white text-indigo-700 shadow-sm";
