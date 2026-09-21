@@ -932,6 +932,10 @@
                     });
                 }
 
+                // Firestore onSnapshot remains the source of truth; give the UI a
+                // direct refresh opportunity after the confirmed write.
+                updateAttendanceButtons();
+                updateHoursSummaries();
                 alert(`Successfully registered "${type}" to Firebase Cloud at ${nowTime}!`);
             } catch (e) {
                 console.error("Error adding document: ", e);
@@ -1081,9 +1085,18 @@
         function renderLogsFromCloud(logs) {
             const timeline = document.getElementById('liveTimeline');
             const today = new Date(); today.setHours(0,0,0,0);
-            const todayMine = currentUserLogs().filter(r => {
+            // Use the fresh snapshot passed by Firestore. This avoids rendering from a
+            // stale global array while authentication/profile state is settling.
+            const uid = window.currentGeoQRUser?.uid;
+            const email = (window.currentGeoQRUser?.email || '').toLowerCase();
+            const label = employeeLabel();
+            const todayMine = (logs || []).filter(r => {
                 const d = logDate(r);
-                return d && d >= today;
+                const belongsToUser =
+                    (uid && r.employeeUid === uid) ||
+                    (email && (r.employeeEmail || '').toLowerCase() === email) ||
+                    (label && r.employee === label);
+                return belongsToUser && d && d >= today;
             });
 
             if(!todayMine.length) {
