@@ -951,7 +951,9 @@
 
         function durationLabel(ms, showSeconds = false) {
             const safe = Math.max(0, ms || 0);
-            const totalSeconds = Math.round(safe / 1000);
+            // Use one consistent whole-second rule for gross, breaks, lunch and net.
+            // This prevents independent rounding from creating a visible 1-second mismatch.
+            const totalSeconds = Math.floor(safe / 1000);
             const hours = Math.floor(totalSeconds / 3600);
             const minutes = Math.floor((totalSeconds % 3600) / 60);
             const seconds = totalSeconds % 60;
