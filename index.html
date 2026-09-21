@@ -1008,7 +1008,22 @@
                 grossMs += openGross;
                 netMs += Math.max(0,openGross-b-l);
             }
-            return {grossMs,netMs,breakMs:totalBreakMs,lunchMs:totalLunchMs,shifts,open:!!shiftStart};
+            // Normalize the final totals together at whole-second precision.
+            // Derive net from the same displayed gross/break/lunch seconds so the
+            // payroll equation always remains exact on screen:
+            // Gross - Break - Lunch = Net.
+            const grossSeconds = Math.floor(grossMs / 1000);
+            const breakSeconds = Math.floor(totalBreakMs / 1000);
+            const lunchSeconds = Math.floor(totalLunchMs / 1000);
+            const netSeconds = Math.max(0, grossSeconds - breakSeconds - lunchSeconds);
+            return {
+                grossMs:grossSeconds * 1000,
+                netMs:netSeconds * 1000,
+                breakMs:breakSeconds * 1000,
+                lunchMs:lunchSeconds * 1000,
+                shifts,
+                open:!!shiftStart
+            };
         }
 
         let weeklyReportOffset = 0;
