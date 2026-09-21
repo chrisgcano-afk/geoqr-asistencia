@@ -834,35 +834,45 @@
             return null;
         }
 
-        function durationLabel(ms) {
-            const mins = Math.max(0, Math.round(ms / 60000));
-            return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2,'0')}m`;
+        function durationLabel(ms, showSeconds = false) {
+            const safe = Math.max(0, ms || 0);
+            const totalSeconds = Math.round(safe / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            if (showSeconds && hours === 0 && minutes < 5) return `${minutes}m ${String(seconds).padStart(2,'0')}s`;
+            return `${hours}h ${String(minutes).padStart(2,'0')}m`;
         }
 
         function calculateSessions(logs) {
             const sorted = [...logs].filter(r => logDate(r)).sort((a,b) => logDate(a) - logDate(b));
-            let shiftStart=null, pauseStart=null, pauseType=null, breakMs=0, lunchMs=0, netMs=0, shifts=0;
+            let shiftStart=null, pauseStart=null, pauseType=null, shiftBreakMs=0, shiftLunchMs=0, totalBreakMs=0, totalLunchMs=0, netMs=0, shifts=0;
             for (const r of sorted) {
                 const type=normalizedEventType(r.type), t=logDate(r);
-                if(type==='Check-in' && !shiftStart){ shiftStart=t; pauseStart=null; pauseType=null; breakMs=0; lunchMs=0; }
+                if(type==='Check-in' && !shiftStart){ shiftStart=t; pauseStart=null; pauseType=null; shiftBreakMs=0; shiftLunchMs=0; }
                 else if(shiftStart && type==='Break Start' && !pauseStart){ pauseStart=t; pauseType='break'; }
                 else if(shiftStart && type==='Lunch Start' && !pauseStart){ pauseStart=t; pauseType='lunch'; }
-                else if(shiftStart && type==='Break End' && pauseStart && pauseType==='break'){ breakMs += t-pauseStart; pauseStart=null; pauseType=null; }
-                else if(shiftStart && type==='Lunch End' && pauseStart && pauseType==='lunch'){ lunchMs += t-pauseStart; pauseStart=null; pauseType=null; }
+                else if(shiftStart && type==='Break End' && pauseStart && pauseType==='break'){ const ms=t-pauseStart; shiftBreakMs+=ms; totalBreakMs+=ms; pauseStart=null; pauseType=null; }
+                else if(shiftStart && type==='Lunch End' && pauseStart && pauseType==='lunch'){ const ms=t-pauseStart; shiftLunchMs+=ms; totalLunchMs+=ms; pauseStart=null; pauseType=null; }
                 else if(shiftStart && type==='Check-out'){
-                    if(pauseStart){ if(pauseType==='break') breakMs += t-pauseStart; else lunchMs += t-pauseStart; }
-                    netMs += Math.max(0,(t-shiftStart)-breakMs-lunchMs); shifts++;
-                    shiftStart=null; pauseStart=null; pauseType=null; breakMs=0; lunchMs=0;
+                    if(pauseStart){
+                        const ms=t-pauseStart;
+                        if(pauseType==='break'){ shiftBreakMs+=ms; totalBreakMs+=ms; } else { shiftLunchMs+=ms; totalLunchMs+=ms; }
+                    }
+                    netMs += Math.max(0,(t-shiftStart)-shiftBreakMs-shiftLunchMs); shifts++;
+                    shiftStart=null; pauseStart=null; pauseType=null; shiftBreakMs=0; shiftLunchMs=0;
                 }
             }
             if(shiftStart){
                 const now=new Date();
-                let b=breakMs,l=lunchMs;
-                if(pauseStart){ if(pauseType==='break') b += now-pauseStart; else l += now-pauseStart; }
+                let b=shiftBreakMs,l=shiftLunchMs;
+                if(pauseStart){
+                    const ms=now-pauseStart;
+                    if(pauseType==='break'){ b+=ms; totalBreakMs+=ms; } else { l+=ms; totalLunchMs+=ms; }
+                }
                 netMs += Math.max(0,(now-shiftStart)-b-l);
-                breakMs=b; lunchMs=l;
             }
-            return {netMs,breakMs,lunchMs,shifts,open:!!shiftStart};
+            return {netMs,breakMs:totalBreakMs,lunchMs:totalLunchMs,shifts,open:!!shiftStart};
         }
 
         function updateHoursSummaries() {
@@ -872,8 +882,8 @@
             const d=calculateSessions(todayLogs);
             const net=document.getElementById('todayNetHours'), br=document.getElementById('todayBreakTime'), lu=document.getElementById('todayLunchTime');
             if(net) net.textContent=durationLabel(d.netMs);
-            if(br) br.textContent=durationLabel(d.breakMs);
-            if(lu) lu.textContent=durationLabel(d.lunchMs);
+            if(br) br.textContent=durationLabel(d.breakMs, true);
+            if(lu) lu.textContent=durationLabel(d.lunchMs, true);
 
             const body=document.getElementById('weeklyReportBody');
             if(!body) return;
