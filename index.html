@@ -286,7 +286,7 @@
                     </h3>
                     <span class="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2.5 py-1 rounded-full"><span class="w-2 h-2 inline-block mr-1 bg-emerald-500 rounded-full animate-pulse"></span> Realtime Sync Active</span>
                 </div>
-                <div id="weeklyReportCards" class="space-y-3 md:hidden">
+                <div id="managerAttendanceCards" class="space-y-3 md:hidden">
                     <div class="p-5 text-center text-sm text-slate-400 italic">Calculating hours from Firebase...</div>
                 </div>
 
@@ -326,7 +326,11 @@
                     </div>
                 </div>
 
-                <div class="overflow-x-auto">
+                <div id="weeklyReportCards" class="space-y-3 md:hidden">
+                    <div class="p-5 text-center text-sm text-slate-400 italic">Calculating hours from Firebase...</div>
+                </div>
+
+                <div class="hidden md:block overflow-x-auto">
                     <table class="w-full text-left text-xs text-slate-600">
                         <thead class="bg-slate-50 text-slate-400 uppercase font-semibold border-b border-slate-100">
                             <tr>
