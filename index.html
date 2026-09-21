@@ -406,7 +406,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp, doc, getDoc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -443,6 +443,7 @@
         window.cloudGetDoc = getDoc;
         window.cloudGetDocs = getDocs;
         window.cloudSetDoc = setDoc;
+        window.cloudUpdateDoc = updateDoc;
         window.geoAuth = auth;
         window.geoSignIn = signInWithEmailAndPassword;
         window.geoSignOut = signOut;
@@ -1313,6 +1314,55 @@
             }
         }
 
+        async function managerEditAttendanceTime(recordId) {
+            if(!isAdminUser()) return alert('Administrator access required.');
+            const record=(window.globalCloudLogs||[]).find(r=>r.id===recordId);
+            if(!record) return alert('Attendance record not found.');
+            const type=normalizedEventType(record.type);
+            if(type!=='Check-in' && type!=='Check-out') return alert('Only check-in and check-out times can be edited here.');
+            const original=logDate(record);
+            if(!original) return alert('The attendance time could not be read.');
+
+            const defaultValue=`${original.getFullYear()}-${String(original.getMonth()+1).padStart(2,'0')}-${String(original.getDate()).padStart(2,'0')} ${String(original.getHours()).padStart(2,'0')}:${String(original.getMinutes()).padStart(2,'0')}:${String(original.getSeconds()).padStart(2,'0')}`;
+            const value=prompt(`Edit ${type} for ${record.employee || record.employeeEmail || 'employee'}\nEnter the correct date/time as YYYY-MM-DD HH:MM:SS`,defaultValue);
+            if(!value) return;
+            const m=value.trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
+            if(!m) return alert('Use this format: YYYY-MM-DD HH:MM:SS');
+            const edited=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]),Number(m[4]),Number(m[5]),Number(m[6]||0),0);
+            if(Number.isNaN(edited.getTime()) || edited>Date.now()+60000) return alert('Enter a valid time that is not in the future.');
+
+            const key=record.employeeUid||record.employeeEmail||record.employee||'Unknown';
+            const employeeRows=(openShiftGroups()[key]||[]).filter(r=>r.id!==record.id && logDate(r)).sort((a,b)=>logDate(a)-logDate(b));
+            if(type==='Check-in'){
+                const nextOut=employeeRows.find(r=>normalizedEventType(r.type)==='Check-out' && logDate(r)>original);
+                if(nextOut && edited>=logDate(nextOut)) return alert('Check-in must be earlier than the related check-out.');
+            } else {
+                const previousIn=[...employeeRows].reverse().find(r=>normalizedEventType(r.type)==='Check-in' && logDate(r)<original);
+                if(previousIn && edited<=logDate(previousIn)) return alert('Check-out must be later than the related check-in.');
+            }
+
+            if(!confirm(`Change ${type} from ${original.toLocaleString()} to ${edited.toLocaleString()}?\nThis will be saved as a manager correction.`)) return;
+            try{
+                const ref=window.cloudDoc(window.cloudDb,'attendance',record.id);
+                const auditOriginal = record.originalTimestamp || original;
+                await window.cloudUpdateDoc(ref,{
+                    timestamp:edited,
+                    time:edited.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}),
+                    status:'Manager Corrected',
+                    administrativeCorrection:true,
+                    originalTimestamp:auditOriginal,
+                    correctedByUid:window.currentGeoQRUser?.uid||'',
+                    correctedByEmail:window.currentGeoQRUser?.email||'',
+                    correctedAt:window.cloudServerTimestamp(),
+                    correctionReason:`Manager edited ${type} time`
+                });
+                alert(`${type} time updated successfully.`);
+            }catch(err){
+                console.error(err);
+                alert('Could not update the attendance time. Check Firestore permissions.');
+            }
+        }
+
         function loadCloudLogsToTable() {
             const tbody = document.getElementById('tableBossLogs');
             const cards = document.getElementById('managerAttendanceCards');
@@ -1322,7 +1372,7 @@
                 if(cards) cards.innerHTML='<div class="p-5 text-center text-sm text-slate-400 italic">No records found in Firestore yet.</div>';
                 return;
             }
-            const action=r=>canManagerCloseShift(r)?`<button onclick="managerCloseForgottenShift('${r.id}')" class="mt-1 bg-rose-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-pen-to-square mr-1"></i>Close forgotten shift</button>`:'';
+            const action=r=>{ const type=normalizedEventType(r.type); const edit=(type==='Check-in'||type==='Check-out')?`<button onclick="managerEditAttendanceTime('${r.id}')" class="mt-1 mr-1 bg-indigo-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-clock-rotate-left mr-1"></i>Edit time</button>`:''; const close=canManagerCloseShift(r)?`<button onclick="managerCloseForgottenShift('${r.id}')" class="mt-1 bg-rose-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-pen-to-square mr-1"></i>Close forgotten shift</button>`:''; return edit+close; };
             if(tbody) tbody.innerHTML = logs.map(r => `
                 <tr class="hover:bg-slate-50">
                     <td class="px-5 py-3 font-semibold text-slate-800">${r.employee||'Employee'}</td>
