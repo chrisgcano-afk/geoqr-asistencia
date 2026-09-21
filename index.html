@@ -187,6 +187,20 @@
                         <p class="mt-3 text-[11px] text-slate-400">Your phone's live location is used only to verify distance from the configured office.</p>
                     </div>
 
+                    <!-- Daily Worked Hours -->
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                        <div class="flex items-center justify-between gap-4">
+                            <div>
+                                <p class="text-xs text-slate-400 font-semibold uppercase">Today's Net Worked Time</p>
+                                <h3 id="todayNetHours" class="text-2xl font-bold text-indigo-600 mt-1">0h 00m</h3>
+                            </div>
+                            <div class="text-right text-xs text-slate-500">
+                                <p>Break: <span id="todayBreakTime" class="font-semibold">0m</span></p>
+                                <p>Lunch: <span id="todayLunchTime" class="font-semibold">0m</span></p>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Daily Summary (Cloud Live) -->
                     <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
                         <h3 class="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
@@ -320,28 +334,8 @@
                                 <th class="px-5 py-3">Weekly Status</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            <tr>
-                                <td class="px-5 py-4 font-semibold text-slate-800">Ana Martinez</td>
-                                <td class="px-5 py-4">5 / 5 days</td>
-                                <td class="px-5 py-4 font-mono">08:58 AM</td>
-                                <td class="px-5 py-4 font-bold text-indigo-600">40.5 hrs</td>
-                                <td class="px-5 py-4"><span class="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-medium">Completed</span></td>
-                            </tr>
-                            <tr>
-                                <td class="px-5 py-4 font-semibold text-slate-800">Carlos Ruiz</td>
-                                <td class="px-5 py-4">4 / 5 days</td>
-                                <td class="px-5 py-4 font-mono">09:15 AM</td>
-                                <td class="px-5 py-4 font-bold text-indigo-600">36.2 hrs</td>
-                                <td class="px-5 py-4"><span class="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-medium">Completed</span></td>
-                            </tr>
-                            <tr>
-                                <td class="px-5 py-4 font-semibold text-slate-800">Sofia Gomez</td>
-                                <td class="px-5 py-4">5 / 5 days</td>
-                                <td class="px-5 py-4 font-mono">08:50 AM</td>
-                                <td class="px-5 py-4 font-bold text-indigo-600">41.0 hrs</td>
-                                <td class="px-5 py-4"><span class="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-medium">Completed</span></td>
-                            </tr>
+                        <tbody id="weeklyReportBody" class="divide-y divide-slate-100">
+                            <tr><td colspan="5" class="px-5 py-6 text-center text-slate-400 italic">Calculating hours from Firebase...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -834,10 +828,82 @@
             }
         }
 
+        function logDate(r) {
+            if (r.timestamp?.toDate) return r.timestamp.toDate();
+            if (r.timestamp?.seconds) return new Date(r.timestamp.seconds * 1000);
+            return null;
+        }
+
+        function durationLabel(ms) {
+            const mins = Math.max(0, Math.round(ms / 60000));
+            return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2,'0')}m`;
+        }
+
+        function calculateSessions(logs) {
+            const sorted = [...logs].filter(r => logDate(r)).sort((a,b) => logDate(a) - logDate(b));
+            let shiftStart=null, pauseStart=null, pauseType=null, breakMs=0, lunchMs=0, netMs=0, shifts=0;
+            for (const r of sorted) {
+                const type=normalizedEventType(r.type), t=logDate(r);
+                if(type==='Check-in' && !shiftStart){ shiftStart=t; pauseStart=null; pauseType=null; breakMs=0; lunchMs=0; }
+                else if(shiftStart && type==='Break Start' && !pauseStart){ pauseStart=t; pauseType='break'; }
+                else if(shiftStart && type==='Lunch Start' && !pauseStart){ pauseStart=t; pauseType='lunch'; }
+                else if(shiftStart && type==='Break End' && pauseStart && pauseType==='break'){ breakMs += t-pauseStart; pauseStart=null; pauseType=null; }
+                else if(shiftStart && type==='Lunch End' && pauseStart && pauseType==='lunch'){ lunchMs += t-pauseStart; pauseStart=null; pauseType=null; }
+                else if(shiftStart && type==='Check-out'){
+                    if(pauseStart){ if(pauseType==='break') breakMs += t-pauseStart; else lunchMs += t-pauseStart; }
+                    netMs += Math.max(0,(t-shiftStart)-breakMs-lunchMs); shifts++;
+                    shiftStart=null; pauseStart=null; pauseType=null; breakMs=0; lunchMs=0;
+                }
+            }
+            if(shiftStart){
+                const now=new Date();
+                let b=breakMs,l=lunchMs;
+                if(pauseStart){ if(pauseType==='break') b += now-pauseStart; else l += now-pauseStart; }
+                netMs += Math.max(0,(now-shiftStart)-b-l);
+                breakMs=b; lunchMs=l;
+            }
+            return {netMs,breakMs,lunchMs,shifts,open:!!shiftStart};
+        }
+
+        function updateHoursSummaries() {
+            const mine=currentUserLogs();
+            const today=new Date(); today.setHours(0,0,0,0);
+            const todayLogs=mine.filter(r=>{const d=logDate(r); return d && d>=today;});
+            const d=calculateSessions(todayLogs);
+            const net=document.getElementById('todayNetHours'), br=document.getElementById('todayBreakTime'), lu=document.getElementById('todayLunchTime');
+            if(net) net.textContent=durationLabel(d.netMs);
+            if(br) br.textContent=durationLabel(d.breakMs);
+            if(lu) lu.textContent=durationLabel(d.lunchMs);
+
+            const body=document.getElementById('weeklyReportBody');
+            if(!body) return;
+            const start=new Date(); start.setHours(0,0,0,0); start.setDate(start.getDate()-((start.getDay()+6)%7));
+            const groups={};
+            (window.globalCloudLogs||[]).forEach(r=>{
+                const dt=logDate(r); if(!dt||dt<start) return;
+                const key=r.employeeUid||r.employeeEmail||r.employee||'Unknown';
+                if(!groups[key]) groups[key]={name:r.employee||r.employeeEmail||'Employee',logs:[]};
+                groups[key].logs.push(r);
+            });
+            const rows=Object.values(groups).map(g=>{
+                const stats=calculateSessions(g.logs);
+                const checkins=g.logs.filter(r=>normalizedEventType(r.type)==='Check-in'&&logDate(r));
+                const days=new Set(checkins.map(r=>logDate(r).toDateString())).size;
+                let avg='—';
+                if(checkins.length){
+                    const mins=Math.round(checkins.reduce((s,r)=>{const x=logDate(r);return s+x.getHours()*60+x.getMinutes();},0)/checkins.length);
+                    avg=new Date(2000,0,1,Math.floor(mins/60),mins%60).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+                }
+                return `<tr><td class="px-5 py-4 font-semibold text-slate-800">${g.name}</td><td class="px-5 py-4">${days} day${days===1?'':'s'}</td><td class="px-5 py-4 font-mono">${avg}</td><td class="px-5 py-4 font-bold text-indigo-600">${durationLabel(stats.netMs)}</td><td class="px-5 py-4"><span class="${stats.open?'bg-amber-100 text-amber-800':'bg-emerald-100 text-emerald-800'} px-2.5 py-1 rounded-full font-medium">${stats.open?'In Progress':'Closed'}</span></td></tr>`;
+            });
+            body.innerHTML=rows.join('')||'<tr><td colspan="5" class="px-5 py-6 text-center text-slate-400 italic">No attendance records for this week.</td></tr>';
+        }
+
         function renderLogsFromCloud(logs) {
             const timeline = document.getElementById('liveTimeline');
             if(!logs || logs.length === 0) {
                 timeline.innerHTML = `<p class="text-xs text-slate-400 italic text-center py-4">No logs recorded today yet.</p>`;
+                updateHoursSummaries();
                 return;
             }
 
@@ -854,6 +920,7 @@
             document.getElementById('statCheckins').innerText = logs.length;
             loadCloudLogsToTable();
             updateAttendanceButtons();
+            updateHoursSummaries();
         }
 
         function loadCloudLogsToTable() {
