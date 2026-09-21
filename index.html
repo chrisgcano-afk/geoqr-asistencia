@@ -1260,15 +1260,17 @@
         function canManagerCloseShift(record) {
             if(!record || normalizedEventType(record.type)!=='Check-in') return false;
             const key=record.employeeUid||record.employeeEmail||record.employee||'Unknown';
-            const rows=(openShiftGroups()[key]||[]).slice().sort((a,b)=>(logDate(a)?.getTime()||0)-(logDate(b)?.getTime()||0));
-            const idx=rows.findIndex(x=>x.id===record.id);
-            if(idx<0) return false;
-            for(let i=idx+1;i<rows.length;i++){
-                const t=normalizedEventType(rows[i].type);
-                if(t==='Check-out') return false;
-                if(t==='Check-in') break;
-            }
-            return true;
+            const rows=(openShiftGroups()[key]||[])
+                .filter(r=>logDate(r))
+                .slice()
+                .sort((a,b)=>logDate(a).getTime()-logDate(b).getTime());
+            if(!rows.length) return false;
+
+            // Only the employee's most recent attendance event can represent an
+            // actually open shift. Older unmatched test/duplicate check-ins must
+            // never receive an administrative close button.
+            const latest=rows[rows.length-1];
+            return latest.id===record.id && normalizedEventType(latest.type)==='Check-in';
         }
 
         async function managerCloseForgottenShift(recordId) {
