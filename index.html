@@ -1035,8 +1035,8 @@
                 const checkins=sorted.filter(r=>normalizedEventType(r.type)==='Check-in');
                 const checkouts=sorted.filter(r=>normalizedEventType(r.type)==='Check-out');
                 const days=new Set(checkins.map(r=>logDate(r).toDateString())).size;
-                const first=checkins.length?logDate(checkins[0]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'—';
-                const last=checkouts.length?logDate(checkouts[checkouts.length-1]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'—';
+                const first=checkins.length?logDate(checkins[0]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+                const last=checkouts.length?logDate(checkouts[checkouts.length-1]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
                 const grossMs=stats.netMs+stats.breakMs+stats.lunchMs;
                 return `<tr>
                     <td class="px-5 py-4 font-semibold text-slate-800">${g.name}</td>
@@ -1057,8 +1057,8 @@
                     const checkins=sorted.filter(r=>normalizedEventType(r.type)==='Check-in');
                     const checkouts=sorted.filter(r=>normalizedEventType(r.type)==='Check-out');
                     const days=new Set(checkins.map(r=>logDate(r).toDateString())).size;
-                    const first=checkins.length?logDate(checkins[0]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'—';
-                    const last=checkouts.length?logDate(checkouts[checkouts.length-1]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'—';
+                    const first=checkins.length?logDate(checkins[0]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+                    const last=checkouts.length?logDate(checkouts[checkouts.length-1]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
                     const grossMs=stats.netMs+stats.breakMs+stats.lunchMs;
                     return `<div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
                         <div class="flex items-start justify-between gap-3 mb-4">
