@@ -451,8 +451,8 @@
 
     <!-- APP UI & LOGIC -->
     <script>
-        window.globalCloudLogs = [];
-        window.currentGeoUser = null;
+        window.globalCloudLogs = window.globalCloudLogs || [];
+        window.currentGeoUser = window.currentGeoUser || null;
 
         function showAuthError(message) {
             const el = document.getElementById('authError');
@@ -534,8 +534,14 @@
                 if (el && !el.dataset.bound) { el.dataset.bound='1'; el.addEventListener('click', fn); }
             });
         }
-        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindAuthButtons);
-        else bindAuthButtons();
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => {
+            bindAuthButtons();
+            setTimeout(() => { if (typeof updateAttendanceButtons === 'function') updateAttendanceButtons(); }, 300);
+        });
+        else {
+            bindAuthButtons();
+            setTimeout(() => { if (typeof updateAttendanceButtons === 'function') updateAttendanceButtons(); }, 300);
+        }
 
         function isAdminUser() {
             return !!window.currentGeoQRUser && (window.currentGeoQRUser.email || '').toLowerCase() === (window.GEOQR_ADMIN_EMAIL || '').toLowerCase();
