@@ -336,7 +336,8 @@
                         <h3 class="text-lg font-bold text-slate-800"><i class="fa-solid fa-calendar-week text-indigo-600 mr-2"></i>Weekly Reports & Hours</h3>
                         <p class="text-xs text-slate-500">Consolidated summary of net hours worked and staff break tracking.</p>
                     </div>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button onclick="exportWeeklyReportCsv()" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 text-xs font-semibold"><i class="fa-solid fa-file-csv mr-1"></i> Export Payroll CSV</button>
                         <button onclick="changeReportWeek(-1)" class="bg-slate-100 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-700"><i class="fa-solid fa-chevron-left"></i></button>
                         <div id="weeklyRangeLabel" class="bg-slate-100 border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-700 font-medium">Current Week</div>
                         <button id="nextWeekBtn" onclick="changeReportWeek(1)" class="bg-slate-100 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-700"><i class="fa-solid fa-chevron-right"></i></button>
@@ -1038,6 +1039,51 @@
         function changeReportWeek(delta) {
             weeklyReportOffset = Math.min(0, weeklyReportOffset + delta);
             updateHoursSummaries();
+        }
+
+        function buildWeeklyReportData() {
+            const {start,end}=weekBounds(weeklyReportOffset);
+            const groups={};
+            (window.globalCloudLogs||[]).forEach(r=>{
+                const dt=logDate(r); if(!dt||dt<start||dt>=end) return;
+                const key=r.employeeUid||r.employeeEmail||r.employee||'Unknown';
+                if(!groups[key]) groups[key]={name:r.employee||r.employeeEmail||'Employee',email:r.employeeEmail||'',logs:[]};
+                groups[key].logs.push(r);
+            });
+            return {start,end,groups};
+        }
+
+        function csvCell(value) {
+            const s=String(value ?? '');
+            return '"' + s.replace(/"/g,'""') + '"';
+        }
+
+        function exportWeeklyReportCsv() {
+            if(!isAdminUser()) return alert('Administrator access required.');
+            const {start,end,groups}=buildWeeklyReportData();
+            const lines=[['Employee','Email','Days Attended','Gross Hours','Break','Lunch','Net Hours','Status']];
+            Object.values(groups).forEach(g=>{
+                const stats=calculateSessions(g.logs);
+                const checkins=g.logs.filter(r=>normalizedEventType(r.type)==='Check-in' && logDate(r));
+                const days=new Set(checkins.map(r=>logDate(r).toDateString())).size;
+                lines.push([
+                    g.name,g.email,days,
+                    durationLabel(stats.grossMs,true),
+                    durationLabel(stats.breakMs,true),
+                    durationLabel(stats.lunchMs,true),
+                    durationLabel(stats.netMs,true),
+                    stats.open?'In Progress':'Closed'
+                ]);
+            });
+            if(lines.length===1) return alert('There are no attendance records for this week.');
+            const csv='\uFEFF'+lines.map(row=>row.map(csvCell).join(',')).join('\r\n');
+            const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+            const url=URL.createObjectURL(blob);
+            const a=document.createElement('a');
+            const lastDay=new Date(end.getTime()-86400000);
+            const stamp=d=>d.toISOString().slice(0,10);
+            a.href=url; a.download='GeoQR-Payroll-'+stamp(start)+'-to-'+stamp(lastDay)+'.csv';
+            document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
         }
 
         function updateHoursSummaries() {
