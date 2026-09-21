@@ -303,6 +303,9 @@
                     </h3>
                     <span class="text-xs bg-emerald-50 text-emerald-700 font-semibold px-2.5 py-1 rounded-full"><span class="w-2 h-2 inline-block mr-1 bg-emerald-500 rounded-full animate-pulse"></span> Realtime Sync Active</span>
                 </div>
+                <div class="px-5 pt-4">
+                    <p class="text-xs text-slate-500"><i class="fa-solid fa-user-shield mr-1 text-indigo-600"></i>Managers can close an employee's forgotten open shift. The correction is saved in Firebase with the manager identity.</p>
+                </div>
                 <div id="managerAttendanceCards" class="space-y-3 md:hidden">
                     <div class="p-5 text-center text-sm text-slate-400 italic">Calculating hours from Firebase...</div>
                 </div>
@@ -1244,24 +1247,89 @@
             updateHoursSummaries();
         }
 
+        function openShiftGroups() {
+            const groups={};
+            (window.globalCloudLogs||[]).forEach(r=>{
+                const key=r.employeeUid||r.employeeEmail||r.employee||'Unknown';
+                if(!groups[key]) groups[key]=[];
+                groups[key].push(r);
+            });
+            return groups;
+        }
+
+        function canManagerCloseShift(record) {
+            if(!record || normalizedEventType(record.type)!=='Check-in') return false;
+            const key=record.employeeUid||record.employeeEmail||record.employee||'Unknown';
+            const rows=(openShiftGroups()[key]||[]).slice().sort((a,b)=>(logDate(a)?.getTime()||0)-(logDate(b)?.getTime()||0));
+            const idx=rows.findIndex(x=>x.id===record.id);
+            if(idx<0) return false;
+            for(let i=idx+1;i<rows.length;i++){
+                const t=normalizedEventType(rows[i].type);
+                if(t==='Check-out') return false;
+                if(t==='Check-in') break;
+            }
+            return true;
+        }
+
+        async function managerCloseForgottenShift(recordId) {
+            if(!isAdminUser()) return alert('Administrator access required.');
+            const record=(window.globalCloudLogs||[]).find(r=>r.id===recordId);
+            if(!record || !canManagerCloseShift(record)) return alert('This shift is no longer open.');
+            const started=logDate(record);
+            if(!started) return alert('The original check-in time could not be read.');
+            const suggested=new Date(started); suggested.setHours(17,0,0,0);
+            if(suggested<=started) suggested.setTime(started.getTime()+8*60*60*1000);
+            const defaultValue=`${suggested.getFullYear()}-${String(suggested.getMonth()+1).padStart(2,'0')}-${String(suggested.getDate()).padStart(2,'0')} ${String(suggested.getHours()).padStart(2,'0')}:${String(suggested.getMinutes()).padStart(2,'0')}`;
+            const value=prompt(`Close forgotten shift for ${record.employee || record.employeeEmail}?\nEnter the correct check-out time as YYYY-MM-DD HH:MM`,defaultValue);
+            if(!value) return;
+            const m=value.trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+            if(!m) return alert('Use this format: YYYY-MM-DD HH:MM');
+            const checkout=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]),Number(m[4]),Number(m[5]),0,0);
+            if(Number.isNaN(checkout.getTime()) || checkout<=started || checkout>Date.now()+60000) return alert('Enter a valid check-out time after check-in and not in the future.');
+            if(!confirm(`Save administrative check-out for ${record.employee || 'employee'} at ${checkout.toLocaleString()}?\nThis action will be recorded as a manager correction.`)) return;
+            try{
+                await window.cloudAddDoc(window.cloudCollection(window.cloudDb,'attendance'),{
+                    employee:record.employee||record.employeeEmail||'Employee',
+                    employeeEmail:record.employeeEmail||'',
+                    employeeUid:record.employeeUid||'',
+                    type:'Check-out',
+                    timestamp:checkout,
+                    time:checkout.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}),
+                    gps:'Administrative correction',
+                    status:'Manager Corrected',
+                    administrativeCorrection:true,
+                    correctedByUid:window.currentGeoQRUser?.uid||'',
+                    correctedByEmail:window.currentGeoQRUser?.email||'',
+                    correctedAt:window.cloudServerTimestamp(),
+                    correctionReason:'Forgotten check-out',
+                    sourceCheckInId:record.id
+                });
+                alert('The forgotten shift was closed and the administrative correction was recorded.');
+            }catch(err){
+                console.error(err);
+                alert('Could not save the correction. Check Firestore permissions.');
+            }
+        }
+
         function loadCloudLogsToTable() {
             const tbody = document.getElementById('tableBossLogs');
+            const cards = document.getElementById('managerAttendanceCards');
             const logs = window.globalCloudLogs || [];
-            
             if(logs.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-6 text-center text-slate-400 italic">No records found in Firestore yet.</td></tr>`;
+                if(tbody) tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-6 text-center text-slate-400 italic">No records found in Firestore yet.</td></tr>`;
+                if(cards) cards.innerHTML='<div class="p-5 text-center text-sm text-slate-400 italic">No records found in Firestore yet.</div>';
                 return;
             }
-
-            tbody.innerHTML = logs.map(r => `
+            const action=r=>canManagerCloseShift(r)?`<button onclick="managerCloseForgottenShift('${r.id}')" class="mt-1 bg-rose-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-pen-to-square mr-1"></i>Close forgotten shift</button>`:'';
+            if(tbody) tbody.innerHTML = logs.map(r => `
                 <tr class="hover:bg-slate-50">
-                    <td class="px-5 py-3 font-semibold text-slate-800">${r.employee}</td>
+                    <td class="px-5 py-3 font-semibold text-slate-800">${r.employee||'Employee'}</td>
                     <td class="px-5 py-3"><span class="px-2 py-0.5 rounded-md font-medium ${r.type === 'Check-in' ? 'bg-emerald-50 text-emerald-700' : r.type === 'Check-out' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}">${r.type}</span></td>
-                    <td class="px-5 py-3 font-mono">${r.time}</td>
-                    <td class="px-5 py-3 text-slate-500">${r.gps}</td>
-                    <td class="px-5 py-3"><span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-semibold"><i class="fa-solid fa-check mr-1"></i>${r.status}</span></td>
-                </tr>
-            `).join('');
+                    <td class="px-5 py-3 font-mono">${r.time||''}</td>
+                    <td class="px-5 py-3 text-slate-500">${r.gps||''}</td>
+                    <td class="px-5 py-3"><span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-semibold">${r.status||'Recorded'}</span>${action(r)}</td>
+                </tr>`).join('');
+            if(cards) cards.innerHTML=logs.map(r=>`<div class="mx-5 p-3 rounded-xl border border-slate-200 bg-slate-50 text-xs"><div class="flex justify-between gap-2"><div><div class="font-semibold text-slate-800">${r.employee||'Employee'}</div><div class="text-slate-500">${r.type} • ${r.time||''}</div></div><div class="text-right"><div class="text-emerald-700 font-semibold">${r.status||'Recorded'}</div>${action(r)}</div></div></div>`).join('');
         }
 
         // Real QR Camera Scanner Functions
