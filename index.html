@@ -432,6 +432,7 @@
             window.currentGeoUser = user || null;
             if (typeof updateAuthUI === 'function') updateAuthUI(user || null);
             if (user && typeof loadOfficeFromCloud === 'function') loadOfficeFromCloud();
+            if (typeof updateAttendanceButtons === 'function') updateAttendanceButtons();
         });
 
         // Realtime listener for attendance logs
@@ -729,14 +730,16 @@
         function currentUserLogs() {
             const uid = window.currentGeoQRUser?.uid;
             const email = (window.currentGeoQRUser?.email || '').toLowerCase();
+            const label = employeeLabel();
             return (window.globalCloudLogs || []).filter(r =>
                 (uid && r.employeeUid === uid) ||
-                (!r.employeeUid && email && (r.employeeEmail || '').toLowerCase() === email) ||
-                (!r.employeeUid && !r.employeeEmail && r.employee === employeeLabel())
+                (email && (r.employeeEmail || '').toLowerCase() === email) ||
+                (label && r.employee === label)
             );
         }
 
         function getAttendanceState() {
+            if (!window.currentGeoQRUser) return 'OFF';
             const logs = currentUserLogs();
             if (!logs.length) return 'OFF';
             const latest = normalizedEventType(logs[0].type);
