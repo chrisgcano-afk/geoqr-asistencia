@@ -840,7 +840,7 @@
             const hours = Math.floor(totalSeconds / 3600);
             const minutes = Math.floor((totalSeconds % 3600) / 60);
             const seconds = totalSeconds % 60;
-            if (showSeconds && hours === 0 && minutes < 5) return `${minutes}m ${String(seconds).padStart(2,'0')}s`;
+            if (showSeconds && hours === 0) return `${minutes}m ${String(seconds).padStart(2,'0')}s`;
             return `${hours}h ${String(minutes).padStart(2,'0')}m`;
         }
 
@@ -911,23 +911,28 @@
 
         function renderLogsFromCloud(logs) {
             const timeline = document.getElementById('liveTimeline');
-            if(!logs || logs.length === 0) {
+            const today = new Date(); today.setHours(0,0,0,0);
+            const todayMine = currentUserLogs().filter(r => {
+                const d = logDate(r);
+                return d && d >= today;
+            });
+
+            if(!todayMine.length) {
                 timeline.innerHTML = `<p class="text-xs text-slate-400 italic text-center py-4">No logs recorded today yet.</p>`;
-                updateHoursSummaries();
-                return;
+            } else {
+                timeline.innerHTML = todayMine.map(r => `
+                    <div class="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
+                        <div>
+                            <span class="font-semibold text-slate-800 block">${normalizedEventType(r.type)}</span>
+                            <span class="text-[10px] text-slate-400">${r.employee}</span>
+                        </div>
+                        <span class="font-mono font-medium text-indigo-600">${r.time}</span>
+                    </div>
+                `).join('');
             }
 
-            timeline.innerHTML = logs.slice(0, 3).map(r => `
-                <div class="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
-                    <div>
-                        <span class="font-semibold text-slate-800 block">${r.type}</span>
-                        <span class="text-[10px] text-slate-400">${r.employee}</span>
-                    </div>
-                    <span class="font-mono font-medium text-indigo-600">${r.time}</span>
-                </div>
-            `).join('');
-
-            document.getElementById('statCheckins').innerText = logs.length;
+            const stat = document.getElementById('statCheckins');
+            if (stat) stat.innerText = (logs || []).filter(r => normalizedEventType(r.type) === 'Check-in').length;
             loadCloudLogsToTable();
             updateAttendanceButtons();
             updateHoursSummaries();
