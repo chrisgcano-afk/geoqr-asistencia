@@ -239,7 +239,7 @@
                 <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
                     <div>
                         <p class="text-xs text-slate-400 font-semibold uppercase">Secure GPS Validations</p>
-                        <h4 class="text-2xl font-bold text-emerald-600 mt-1">100%</h4>
+                        <h4 class="text-2xl font-bold text-emerald-600 mt-1" id="statGps">—</h4>
                     </div>
                     <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center text-lg">
                         <i class="fa-solid fa-shield-halved"></i>
@@ -1082,6 +1082,49 @@
             body.innerHTML=rows.join('')||'<tr><td colspan="8" class="px-5 py-6 text-center text-slate-400 italic">No attendance records for this week.</td></tr>';
         }
 
+        async function updateManagerStats(logs) {
+            const start = new Date(); start.setHours(0,0,0,0);
+            const todayLogs = (logs || []).filter(r => {
+                const d = logDate(r);
+                return d && d >= start;
+            });
+
+            // Today's check-ins only (not historical check-ins).
+            const checkins = todayLogs.filter(r => normalizedEventType(r.type) === 'Check-in').length;
+            const checkinsEl = document.getElementById('statCheckins');
+            if (checkinsEl) checkinsEl.textContent = String(checkins);
+
+            // GPS percentage is calculated from today's attendance events.
+            const gpsEl = document.getElementById('statGps');
+            if (gpsEl) {
+                const gpsValidated = todayLogs.filter(r => r.status === 'GPS Verified').length;
+                gpsEl.textContent = todayLogs.length ? Math.round((gpsValidated / todayLogs.length) * 100) + '%' : '—';
+            }
+
+            if (!isAdminUser()) return;
+            try {
+                const snap = await window.cloudGetDocs(window.cloudCollection(window.cloudDb, 'employees'));
+                const employees = [];
+                snap.forEach(d => employees.push({ id:d.id, ...d.data() }));
+                const activeDirectory = employees.filter(e => e.active !== false);
+                const working = activeDirectory.filter(e => {
+                    const email = (e.email || e.id || '').toLowerCase();
+                    const mine = todayLogs
+                        .filter(r => (r.employeeEmail || '').toLowerCase() === email)
+                        .sort((a,b) => (logDate(b)?.getTime() || 0) - (logDate(a)?.getTime() || 0));
+                    if (!mine.length) return false;
+                    const latest = normalizedEventType(mine[0].type);
+                    return latest !== 'Check-out';
+                }).length;
+                const activeEl = document.getElementById('statActive');
+                if (activeEl) activeEl.textContent = working + ' / ' + activeDirectory.length;
+            } catch (err) {
+                console.error('Could not calculate manager employee stats:', err);
+                const activeEl = document.getElementById('statActive');
+                if (activeEl) activeEl.textContent = '—';
+            }
+        }
+
         function renderLogsFromCloud(logs) {
             const timeline = document.getElementById('liveTimeline');
             const today = new Date(); today.setHours(0,0,0,0);
@@ -1113,8 +1156,7 @@
                 `).join('');
             }
 
-            const stat = document.getElementById('statCheckins');
-            if (stat) stat.innerText = (logs || []).filter(r => normalizedEventType(r.type) === 'Check-in').length;
+            updateManagerStats(logs || []);
             loadCloudLogsToTable();
             updateAttendanceButtons();
             updateHoursSummaries();
