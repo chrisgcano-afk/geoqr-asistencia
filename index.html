@@ -960,34 +960,53 @@
         }
 
         function calculateSessions(logs) {
+            // Payroll-safe calculation: sum each actual Check-in -> Check-out
+            // session independently. Time between separate shifts is off-clock
+            // and must never be counted as worked time.
             const sorted = [...logs].filter(r => logDate(r)).sort((a,b) => logDate(a) - logDate(b));
-            let shiftStart=null, pauseStart=null, pauseType=null, shiftBreakMs=0, shiftLunchMs=0, totalBreakMs=0, totalLunchMs=0, netMs=0, shifts=0;
+            let shiftStart=null, pauseStart=null, pauseType=null;
+            let shiftBreakMs=0, shiftLunchMs=0;
+            let totalBreakMs=0, totalLunchMs=0, grossMs=0, netMs=0, shifts=0;
+
             for (const r of sorted) {
                 const type=normalizedEventType(r.type), t=logDate(r);
-                if(type==='Check-in' && !shiftStart){ shiftStart=t; pauseStart=null; pauseType=null; shiftBreakMs=0; shiftLunchMs=0; }
-                else if(shiftStart && type==='Break Start' && !pauseStart){ pauseStart=t; pauseType='break'; }
-                else if(shiftStart && type==='Lunch Start' && !pauseStart){ pauseStart=t; pauseType='lunch'; }
-                else if(shiftStart && type==='Break End' && pauseStart && pauseType==='break'){ const ms=t-pauseStart; shiftBreakMs+=ms; totalBreakMs+=ms; pauseStart=null; pauseType=null; }
-                else if(shiftStart && type==='Lunch End' && pauseStart && pauseType==='lunch'){ const ms=t-pauseStart; shiftLunchMs+=ms; totalLunchMs+=ms; pauseStart=null; pauseType=null; }
-                else if(shiftStart && type==='Check-out'){
+                if(type==='Check-in' && !shiftStart){
+                    shiftStart=t; pauseStart=null; pauseType=null; shiftBreakMs=0; shiftLunchMs=0;
+                } else if(shiftStart && type==='Break Start' && !pauseStart){
+                    pauseStart=t; pauseType='break';
+                } else if(shiftStart && type==='Lunch Start' && !pauseStart){
+                    pauseStart=t; pauseType='lunch';
+                } else if(shiftStart && type==='Break End' && pauseStart && pauseType==='break'){
+                    const ms=Math.max(0,t-pauseStart); shiftBreakMs+=ms; totalBreakMs+=ms; pauseStart=null; pauseType=null;
+                } else if(shiftStart && type==='Lunch End' && pauseStart && pauseType==='lunch'){
+                    const ms=Math.max(0,t-pauseStart); shiftLunchMs+=ms; totalLunchMs+=ms; pauseStart=null; pauseType=null;
+                } else if(shiftStart && type==='Check-out'){
                     if(pauseStart){
-                        const ms=t-pauseStart;
-                        if(pauseType==='break'){ shiftBreakMs+=ms; totalBreakMs+=ms; } else { shiftLunchMs+=ms; totalLunchMs+=ms; }
+                        const ms=Math.max(0,t-pauseStart);
+                        if(pauseType==='break'){ shiftBreakMs+=ms; totalBreakMs+=ms; }
+                        else if(pauseType==='lunch'){ shiftLunchMs+=ms; totalLunchMs+=ms; }
                     }
-                    netMs += Math.max(0,(t-shiftStart)-shiftBreakMs-shiftLunchMs); shifts++;
+                    const shiftGross=Math.max(0,t-shiftStart);
+                    grossMs += shiftGross;
+                    netMs += Math.max(0,shiftGross-shiftBreakMs-shiftLunchMs);
+                    shifts++;
                     shiftStart=null; pauseStart=null; pauseType=null; shiftBreakMs=0; shiftLunchMs=0;
                 }
             }
+
             if(shiftStart){
                 const now=new Date();
-                let b=shiftBreakMs,l=shiftLunchMs;
+                let b=shiftBreakMs, l=shiftLunchMs;
                 if(pauseStart){
-                    const ms=now-pauseStart;
-                    if(pauseType==='break'){ b+=ms; totalBreakMs+=ms; } else { l+=ms; totalLunchMs+=ms; }
+                    const ms=Math.max(0,now-pauseStart);
+                    if(pauseType==='break'){ b+=ms; totalBreakMs+=ms; }
+                    else if(pauseType==='lunch'){ l+=ms; totalLunchMs+=ms; }
                 }
-                netMs += Math.max(0,(now-shiftStart)-b-l);
+                const openGross=Math.max(0,now-shiftStart);
+                grossMs += openGross;
+                netMs += Math.max(0,openGross-b-l);
             }
-            return {netMs,breakMs:totalBreakMs,lunchMs:totalLunchMs,shifts,open:!!shiftStart};
+            return {grossMs,netMs,breakMs:totalBreakMs,lunchMs:totalLunchMs,shifts,open:!!shiftStart};
         }
 
         let weeklyReportOffset = 0;
@@ -1037,7 +1056,7 @@
                 const days=new Set(checkins.map(r=>logDate(r).toDateString())).size;
                 const first=checkins.length?logDate(checkins[0]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
                 const last=checkouts.length?logDate(checkouts[checkouts.length-1]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
-                const grossMs=stats.netMs+stats.breakMs+stats.lunchMs;
+                const grossMs=stats.grossMs;
                 return `<tr>
                     <td class="px-5 py-4 font-semibold text-slate-800">${g.name}</td>
                     <td class="px-5 py-4">${days} day${days===1?'':'s'}</td>
@@ -1059,7 +1078,7 @@
                     const days=new Set(checkins.map(r=>logDate(r).toDateString())).size;
                     const first=checkins.length?logDate(checkins[0]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
                     const last=checkouts.length?logDate(checkouts[checkouts.length-1]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
-                    const grossMs=stats.netMs+stats.breakMs+stats.lunchMs;
+                    const grossMs=stats.grossMs;
                     return `<div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
                         <div class="flex items-start justify-between gap-3 mb-4">
                             <div>
