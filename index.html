@@ -955,7 +955,7 @@
             const hours = Math.floor(totalSeconds / 3600);
             const minutes = Math.floor((totalSeconds % 3600) / 60);
             const seconds = totalSeconds % 60;
-            if (showSeconds && hours === 0) return `${minutes}m ${String(seconds).padStart(2,'0')}s`;
+            if (showSeconds) return `${hours}h ${String(minutes).padStart(2,'0')}m ${String(seconds).padStart(2,'0')}s`;
             return `${hours}h ${String(minutes).padStart(2,'0')}m`;
         }
 
@@ -1063,8 +1063,8 @@
                     <td class="px-5 py-4 font-mono whitespace-nowrap">${first} / ${last}</td>
                     <td class="px-5 py-4 whitespace-nowrap">${durationLabel(stats.breakMs, true)}</td>
                     <td class="px-5 py-4 whitespace-nowrap">${durationLabel(stats.lunchMs, true)}</td>
-                    <td class="px-5 py-4 font-semibold whitespace-nowrap">${durationLabel(grossMs)}</td>
-                    <td class="px-5 py-4 font-bold text-indigo-600 whitespace-nowrap">${durationLabel(stats.netMs)}</td>
+                    <td class="px-5 py-4 font-semibold whitespace-nowrap">${durationLabel(grossMs, true)}</td>
+                    <td class="px-5 py-4 font-bold text-indigo-600 whitespace-nowrap">${durationLabel(stats.netMs, true)}</td>
                     <td class="px-5 py-4"><span class="${stats.open?'bg-amber-100 text-amber-800':'bg-emerald-100 text-emerald-800'} px-2.5 py-1 rounded-full font-medium whitespace-nowrap">${stats.open?'In Progress':'Closed'}</span></td>
                 </tr>`;
             });
@@ -1089,10 +1089,10 @@
                         </div>
                         <div class="grid grid-cols-2 gap-3 text-xs">
                             <div class="bg-white rounded-xl p-3 border border-slate-100"><div class="text-slate-400 uppercase font-semibold text-[10px]">First / Last</div><div class="font-mono font-semibold text-slate-700 mt-1">${first} / ${last}</div></div>
-                            <div class="bg-white rounded-xl p-3 border border-slate-100"><div class="text-slate-400 uppercase font-semibold text-[10px]">Net Hours</div><div class="font-bold text-indigo-600 mt-1">${durationLabel(stats.netMs)}</div></div>
+                            <div class="bg-white rounded-xl p-3 border border-slate-100"><div class="text-slate-400 uppercase font-semibold text-[10px]">Net Hours</div><div class="font-bold text-indigo-600 mt-1">${durationLabel(stats.netMs, true)}</div></div>
                             <div class="bg-white rounded-xl p-3 border border-slate-100"><div class="text-slate-400 uppercase font-semibold text-[10px]">Break</div><div class="font-semibold text-slate-700 mt-1">${durationLabel(stats.breakMs, true)}</div></div>
                             <div class="bg-white rounded-xl p-3 border border-slate-100"><div class="text-slate-400 uppercase font-semibold text-[10px]">Lunch</div><div class="font-semibold text-slate-700 mt-1">${durationLabel(stats.lunchMs, true)}</div></div>
-                            <div class="bg-white rounded-xl p-3 border border-slate-100 col-span-2 flex items-center justify-between"><span class="text-slate-400 uppercase font-semibold text-[10px]">Gross Hours</span><span class="font-bold text-slate-800">${durationLabel(grossMs)}</span></div>
+                            <div class="bg-white rounded-xl p-3 border border-slate-100 col-span-2 flex items-center justify-between"><span class="text-slate-400 uppercase font-semibold text-[10px]">Gross Hours</span><span class="font-bold text-slate-800">${durationLabel(grossMs, true)}</span></div>
                         </div>
                     </div>`;
                 });
