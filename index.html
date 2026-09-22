@@ -118,9 +118,9 @@
                 <div class="lg:col-span-2 space-y-6">
                     <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 relative overflow-hidden">
                         <div class="absolute top-0 right-0 bg-indigo-50 text-indigo-600 px-4 py-1.5 rounded-bl-2xl text-xs font-semibold border-l border-b border-indigo-100">
-                            <i class="fa-solid fa-building-shield mr-1"></i> Madrid HQ Office
+                            <i class="fa-solid fa-building-shield mr-1"></i> Main Office
                         </div>
-                        <h2 class="text-lg font-bold text-slate-800 mb-1"><i class="fa-solid fa-qrcode text-indigo-600 mr-2"></i>Check-in at Office HQ</h2>
+                        <h2 class="text-lg font-bold text-slate-800 mb-1"><i class="fa-solid fa-qrcode text-indigo-600 mr-2"></i>Check-in at Main Office</h2>
                         <p class="text-xs text-slate-500 mb-6">Scan the office physical QR code or use the buttons to log your work shift with mandatory GPS validation.</p>
 
                         <!-- QR Camera Simulator / Scanner -->
@@ -264,7 +264,7 @@
                 </div>
                 <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center">
                     <div id="qrCodeContainer" class="bg-white p-3 rounded-xl shadow-sm mb-2"></div>
-                    <span class="text-[10px] text-slate-400 font-mono">HQ ID: MADRID-HQ-01</span>
+                    <span class="text-[10px] text-slate-400 font-mono">Site ID: MAIN-OFFICE-01</span>
                 </div>
             </div>
 
@@ -758,13 +758,13 @@
                 qrContainer.innerHTML = "";
                 try {
                     const qr = qrcode(0, 'M');
-                    qr.addData('GEOQR_SEDE_MADRID_HQ_SECURE_TOKEN_2026');
+                    qr.addData('GEOQR_SITE_MAIN_OFFICE_SECURE_TOKEN_2026');
                     qr.make();
                     qrContainer.innerHTML = qr.createImgTag(4, 4);
                     const img = qrContainer.querySelector('img');
                     if (img) img.className = "mx-auto rounded-lg";
                 } catch(e) {
-                    qrContainer.innerHTML = "<p class='text-xs text-slate-400'>Madrid HQ QR</p>";
+                    qrContainer.innerHTML = "<p class='text-xs text-slate-400'>Main Office QR</p>";
                 }
             }
             
