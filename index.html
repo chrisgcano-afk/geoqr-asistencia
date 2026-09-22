@@ -121,7 +121,7 @@
                             <i class="fa-solid fa-building-shield mr-1"></i> Main Office
                         </div>
                         <h2 class="text-lg font-bold text-slate-800 mb-1"><i class="fa-solid fa-qrcode text-indigo-600 mr-2"></i>Check-in at Main Office</h2>
-                        <p class="text-xs text-slate-500 mb-6">Scan the office physical QR code or use the buttons to log your work shift with mandatory GPS validation.</p>
+                        <p class="text-xs text-slate-500 mb-6">Every attendance action requires scanning the physical work-site QR code and passing GPS validation before it can be recorded.</p>
 
                         <!-- QR Camera Simulator / Scanner -->
                         <div class="bg-slate-900 rounded-2xl p-6 text-white text-center flex flex-col items-center justify-center relative min-h-[220px] shadow-inner">
@@ -134,7 +134,7 @@
                                     <i class="fa-solid fa-camera text-2xl text-indigo-300"></i>
                                 </div>
                                 <p class="text-sm font-medium text-slate-200">Point at the QR code located at the office entrance</p>
-                                <button onclick="startQRScan()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-5 py-2.5 rounded-xl shadow transition flex items-center gap-2 mx-auto">
+                                <button onclick="alert('Choose Check-in, Break, Lunch, or Check-out. The camera will open automatically and the QR scan is required.')" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-5 py-2.5 rounded-xl shadow transition flex items-center gap-2 mx-auto">
                                     <i class="fa-solid fa-expand"></i> Enable Camera / Scan QR
                                 </button>
                             </div>
@@ -909,6 +909,9 @@
             }
         }
 
+        let pendingAttendanceType = null;
+        const OFFICE_QR_TOKEN = 'GEOQR_SITE_MAIN_OFFICE_SECURE_TOKEN_2026';
+
         async function recordAttendance(type) {
             const state = getAttendanceState();
             const allowed = {
@@ -922,7 +925,15 @@
                 updateAttendanceButtons();
                 return;
             }
-            await checkIn(type);
+            if (!window.currentGeoUser) {
+                alert('Please sign in before registering attendance.');
+                return;
+            }
+
+            // QR is mandatory for every attendance event. Nothing is written
+            // until the physical site QR is scanned and GPS also passes.
+            pendingAttendanceType = type;
+            await startQRScan(type);
         }
 
         async function checkIn(type) {
@@ -1448,43 +1459,69 @@
 
         // Real QR Camera Scanner Functions
         let html5QrCode = null;
-        function startQRScan() {
+        let qrScanBusy = false;
+
+        async function startQRScan(type = null) {
+            if (type) pendingAttendanceType = type;
+            if (!pendingAttendanceType) {
+                alert('Choose an attendance action first (Check-in, Break, Lunch, or Check-out).');
+                return;
+            }
+            if (qrScanBusy) return;
+            qrScanBusy = true;
+
             document.getElementById('scanner-placeholder').classList.add('hidden');
             document.getElementById('scanner-container').classList.remove('hidden');
-            
-            html5QrCode = new Html5Qrcode("reader");
-            html5QrCode.start(
-                { facingMode: "environment" },
-                { fps: 10, qrbox: { width: 200, height: 200 } },
-                (decodedText) => {
-                    if(decodedText.includes('GEOQR_SEDE')) {
-                        alert("HQ Office QR Code successfully recognized!");
-                        closeCamera();
-                        recordAttendance('Check-in');
-                    } else {
-                        alert("Invalid QR code for this company.");
-                    }
-                },
-                (errorMessage) => {}
-            ).catch(err => {
-                alert("Could not start camera. Make sure to grant permission.");
-                closeCamera();
-            });
+
+            try {
+                if (html5QrCode) {
+                    try { await html5QrCode.stop(); } catch (_) {}
+                    try { html5QrCode.clear(); } catch (_) {}
+                }
+                html5QrCode = new Html5Qrcode("reader");
+                await html5QrCode.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 220, height: 220 } },
+                    async (decodedText) => {
+                        if (qrScanBusy !== true) return;
+                        if (decodedText !== OFFICE_QR_TOKEN) {
+                            qrScanBusy = false;
+                            alert('❌ Invalid QR code for this work site. Attendance was NOT recorded.');
+                            await closeCamera(false);
+                            pendingAttendanceType = null;
+                            return;
+                        }
+
+                        const actionType = pendingAttendanceType;
+                        qrScanBusy = false;
+                        await closeCamera(false);
+                        pendingAttendanceType = null;
+
+                        // checkIn performs the second mandatory validation: GPS.
+                        // Firestore is written only after both QR + GPS succeed.
+                        await checkIn(actionType);
+                    },
+                    () => {}
+                );
+            } catch (err) {
+                console.error('QR camera error:', err);
+                qrScanBusy = false;
+                pendingAttendanceType = null;
+                alert('Could not start camera. Camera permission is required. Attendance was NOT recorded.');
+                await closeCamera(false);
+            }
         }
 
-        function closeCamera() {
-            if(html5QrCode) {
-                html5QrCode.stop().then(() => {
-                    document.getElementById('scanner-container').classList.add('hidden');
-                    document.getElementById('scanner-placeholder').classList.remove('hidden');
-                }).catch(err => {
-                    document.getElementById('scanner-container').classList.add('hidden');
-                    document.getElementById('scanner-placeholder').classList.remove('hidden');
-                });
-            } else {
-                document.getElementById('scanner-container').classList.add('hidden');
-                document.getElementById('scanner-placeholder').classList.remove('hidden');
+        async function closeCamera(cancelPending = true) {
+            qrScanBusy = false;
+            if (cancelPending) pendingAttendanceType = null;
+            if (html5QrCode) {
+                try { await html5QrCode.stop(); } catch (_) {}
+                try { html5QrCode.clear(); } catch (_) {}
+                html5QrCode = null;
             }
+            document.getElementById('scanner-container').classList.add('hidden');
+            document.getElementById('scanner-placeholder').classList.remove('hidden');
         }
 
         function showInstallInstructions() {
