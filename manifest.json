@@ -1,0 +1,21 @@
+{
+  "id": "/",
+  "name": "GeoQR Cloud Attendance",
+  "short_name": "GeoQR",
+  "description": "GPS and QR employee attendance tracking.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#4f46e5",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
