@@ -12,7 +12,7 @@
     <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <!-- PWA Manifest & Meta -->
-    <link rel="manifest" href="data:application/manifest+json;charset=utf-8,%7B%22name%22%3A%22GeoQR%20Attendance%22%2C%22short_name%22%3A%22GeoQR%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%236366f1%22%2C%22theme_color%22%3A%22%236366f1%22%2C%22icons%22%3A%5B%5D%7D">
+    <link rel="manifest" href="/manifest.json">\n    <link rel="icon" href="/icon.svg" type="image/svg+xml">\n    <meta name="mobile-web-app-capable" content="yes">\n    <meta name="apple-mobile-web-app-capable" content="yes">\n    <meta name="apple-mobile-web-app-status-bar-style" content="default">\n    <meta name="apple-mobile-web-app-title" content="GeoQR">
     <meta name="theme-color" content="#6366f1">
     <style>
         @keyframes pulse-subtle {
@@ -765,6 +765,22 @@
             
             refreshOfficeUi();
             if (window.currentGeoQRUser) loadOfficeFromCloud();
+
+            // Register the real PWA service worker.
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/service-worker.js').catch(err => console.error('Service worker registration failed:', err));
+            }
+
+            // Hide install controls when GeoQR is already running as an installed app.
+            const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+            if (isStandalone) {
+                document.getElementById('btnInstall')?.classList.add('hidden');
+            }
+
+            window.addEventListener('appinstalled', () => {
+                window.deferredPrompt = null;
+                document.getElementById('btnInstall')?.classList.add('hidden');
+            });
 
             // PWA Install Prompt Detection
             window.addEventListener('beforeinstallprompt', (e) => {
