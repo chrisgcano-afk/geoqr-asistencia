@@ -1291,14 +1291,15 @@
             // Use the fresh snapshot passed by Firestore. This avoids rendering from a
             // stale global array while authentication/profile state is settling.
             const uid = window.currentGeoQRUser?.uid;
-            const email = (window.currentGeoQRUser?.email || '').toLowerCase();
-            const label = employeeLabel();
+            const manager = isAdminUser();
+            // Employee View is always isolated to the authenticated Firebase UID.
+            // Never fall back to display name/email because old or corrected records
+            // could otherwise leak another employee's attendance into this view.
             const todayMine = (logs || []).filter(r => {
                 const d = logDate(r);
-                const belongsToUser =
-                    (uid && r.employeeUid === uid) ||
-                    (email && (r.employeeEmail || '').toLowerCase() === email) ||
-                    (label && r.employee === label);
+                const belongsToUser = manager
+                    ? (uid && r.employeeUid === uid)
+                    : (uid && r.employeeUid === uid);
                 return belongsToUser && d && d >= today;
             });
 
