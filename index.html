@@ -923,7 +923,9 @@
 
         function getAttendanceState() {
             if (!window.currentGeoQRUser) return 'OFF';
-            const logs = currentUserLogs();
+            const logs = currentUserLogs()
+                .filter(r => logDate(r))
+                .sort((a, b) => logDate(b) - logDate(a));
             if (!logs.length) return 'OFF';
             const latest = normalizedEventType(logs[0].type);
             if (latest === 'Check-out') return 'OFF';
@@ -1026,9 +1028,9 @@
                     });
                 }
 
-                // Firestore onSnapshot remains the source of truth; give the UI a
-                // direct refresh opportunity after the confirmed write.
-                updateAttendanceButtons();
+                // Firestore onSnapshot remains the source of truth. Do not evaluate
+                // the next allowed action against stale logs here; the realtime listener
+                // will refresh the state as soon as the confirmed write arrives.
                 updateHoursSummaries();
                 alert(`Successfully registered "${type}" to Firebase Cloud at ${nowTime}!`);
             } catch (e) {
