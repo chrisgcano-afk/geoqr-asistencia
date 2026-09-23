@@ -421,7 +421,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp, doc, getDoc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, where, orderBy, serverTimestamp, doc, getDoc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -469,6 +469,39 @@
             setTimeout(() => { if (typeof showAuthError === 'function') showAuthError(error.message || 'Google sign-in failed.'); }, 0);
         });
 
+        let attendanceUnsubscribe = null;
+
+        function startSecureAttendanceListener(user) {
+            if (attendanceUnsubscribe) {
+                attendanceUnsubscribe();
+                attendanceUnsubscribe = null;
+            }
+            window.globalCloudLogs = [];
+
+            if (!user || !window.currentGeoQRProfile) {
+                if (typeof renderLogsFromCloud === 'function') renderLogsFromCloud([]);
+                return;
+            }
+
+            // Managers may read the company attendance feed. Employees only
+            // subscribe to records whose employeeUid matches their own Auth UID.
+            const manager = (window.currentGeoQRProfile.role === 'manager' || window.currentGeoQRProfile.bootstrapAdmin === true);
+            const q = manager
+                ? query(collection(db, "attendance"), orderBy("timestamp", "desc"))
+                : query(collection(db, "attendance"), where("employeeUid", "==", user.uid), orderBy("timestamp", "desc"));
+
+            attendanceUnsubscribe = onSnapshot(q, (snapshot) => {
+                const logs = [];
+                snapshot.forEach((record) => {
+                    logs.push({ id: record.id, ...record.data() });
+                });
+                window.globalCloudLogs = logs;
+                if (typeof renderLogsFromCloud === 'function') renderLogsFromCloud(logs);
+            }, (error) => {
+                console.error("Error fetching secure realtime attendance data:", error);
+            });
+        }
+
         onAuthStateChanged(auth, async (user) => {
             window.currentGeoQRUser = user || null;
             window.currentGeoUser = user || null;
@@ -478,21 +511,9 @@
             } else if (typeof updateAuthUI === 'function') {
                 updateAuthUI(null);
             }
+            startSecureAttendanceListener(window.currentGeoQRUser);
             if (user && window.currentGeoQRUser && typeof loadOfficeFromCloud === 'function') loadOfficeFromCloud();
             if (typeof updateAttendanceButtons === 'function') updateAttendanceButtons();
-        });
-
-        // Realtime listener for attendance logs
-        const q = query(collection(db, "attendance"), orderBy("timestamp", "desc"));
-        onSnapshot(q, (snapshot) => {
-            const logs = [];
-            snapshot.forEach((doc) => {
-                logs.push({ id: doc.id, ...doc.data() });
-            });
-            window.globalCloudLogs = logs;
-            renderLogsFromCloud(logs);
-        }, (error) => {
-            console.error("Error fetching realtime data: ", error);
         });
     </script>
 
