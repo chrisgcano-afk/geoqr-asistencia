@@ -1015,7 +1015,7 @@
             
             try {
                 if (window.cloudDb) {
-                    await window.cloudAddDoc(window.cloudCollection(window.cloudDb, "attendance"), {
+                    const newRecord = {
                         employee: currentEmployee,
                         employeeEmail: window.currentGeoQRUser?.email || '',
                         employeeUid: window.currentGeoQRUser?.uid || '',
@@ -1025,12 +1025,26 @@
                         gpsAccuracy: Math.round(gps.accuracy || 0),
                         status: 'GPS Verified',
                         timestamp: window.cloudServerTimestamp()
-                    });
+                    };
+                    const saved = await window.cloudAddDoc(window.cloudCollection(window.cloudDb, "attendance"), newRecord);
+
+                    // Optimistically apply the confirmed event locally so the next
+                    // action (End Break, End Lunch, etc.) is enabled immediately.
+                    // The realtime Firestore snapshot will replace this temporary
+                    // local record with the authoritative server record.
+                    const localRecord = {
+                        id: saved?.id || ('local-' + Date.now()),
+                        ...newRecord,
+                        timestamp: { seconds: Math.floor(Date.now() / 1000) }
+                    };
+                    window.globalCloudLogs = [
+                        localRecord,
+                        ...(window.globalCloudLogs || []).filter(r => r.id !== localRecord.id)
+                    ];
+                    renderLogsFromCloud(window.globalCloudLogs);
                 }
 
-                // Firestore onSnapshot remains the source of truth. Do not evaluate
-                // the next allowed action against stale logs here; the realtime listener
-                // will refresh the state as soon as the confirmed write arrives.
+                updateAttendanceButtons();
                 updateHoursSummaries();
                 alert(`Successfully registered "${type}" to Firebase Cloud at ${nowTime}!`);
             } catch (e) {
