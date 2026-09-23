@@ -925,13 +925,20 @@
             if (!window.currentGeoQRUser) return 'OFF';
             const logs = currentUserLogs()
                 .filter(r => logDate(r))
-                .sort((a, b) => logDate(b) - logDate(a));
+                .sort((a, b) => {
+                    const timeDiff = logDate(b) - logDate(a);
+                    if (timeDiff !== 0) return timeDiff;
+                    // Firestore server timestamps can share the same whole second.
+                    // Prefer the newest locally-confirmed action when timestamps tie.
+                    return (b._localOrder || 0) - (a._localOrder || 0);
+                });
             if (!logs.length) return 'OFF';
             const latest = normalizedEventType(logs[0].type);
             if (latest === 'Check-out') return 'OFF';
             if (latest === 'Break Start') return 'BREAK';
             if (latest === 'Lunch Start') return 'LUNCH';
-            return 'WORKING';
+            if (latest === 'Break End' || latest === 'Lunch End' || latest === 'Check-in') return 'WORKING';
+            return 'OFF';
         }
 
         function setActionButton(id, enabled) {
@@ -1035,7 +1042,8 @@
                     const localRecord = {
                         id: saved?.id || ('local-' + Date.now()),
                         ...newRecord,
-                        timestamp: { seconds: Math.floor(Date.now() / 1000) }
+                        timestamp: { seconds: Math.floor(Date.now() / 1000), nanoseconds: (Date.now() % 1000) * 1000000 },
+                        _localOrder: Date.now()
                     };
                     window.globalCloudLogs = [
                         localRecord,
