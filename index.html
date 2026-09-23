@@ -421,7 +421,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, where, orderBy, serverTimestamp, doc, getDoc, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, where, orderBy, serverTimestamp, doc, getDoc, setDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -459,6 +459,7 @@
         window.cloudGetDocs = getDocs;
         window.cloudSetDoc = setDoc;
         window.cloudUpdateDoc = updateDoc;
+        window.cloudDeleteDoc = deleteDoc;
         window.geoAuth = auth;
         window.geoSignIn = signInWithEmailAndPassword;
         window.geoSignOut = signOut;
@@ -1518,6 +1519,32 @@
             }
         }
 
+        async function managerDeleteAttendance(recordId) {
+            if (!isAdminUser()) {
+                alert('Only a Manager can delete attendance records.');
+                return;
+            }
+            const record = (window.globalCloudLogs || []).find(r => r.id === recordId);
+            if (!record) {
+                alert('Attendance record not found. Refresh and try again.');
+                return;
+            }
+            const type = normalizedEventType(record.type);
+            const employee = record.employee || record.employeeEmail || 'Employee';
+            const when = record.time || 'unknown time';
+            const confirmed = confirm(
+                `Delete this attendance record?\n\n${employee} — ${type} — ${when}\n\nThis permanently removes the record from Firestore and recalculates reports. This cannot be undone.`
+            );
+            if (!confirmed) return;
+            try {
+                await window.cloudDeleteDoc(window.cloudDoc(window.cloudDb, 'attendance', recordId));
+                alert(`Deleted: ${employee} — ${type} — ${when}`);
+            } catch (err) {
+                console.error('Could not delete attendance record:', err);
+                alert('Could not delete the record. Check Manager permissions and try again.');
+            }
+        }
+
         function loadCloudLogsToTable() {
             const tbody = document.getElementById('tableBossLogs');
             const cards = document.getElementById('managerAttendanceCards');
@@ -1527,7 +1554,7 @@
                 if(cards) cards.innerHTML='<div class="p-5 text-center text-sm text-slate-400 italic">No records found in Firestore yet.</div>';
                 return;
             }
-            const action=r=>{ const type=normalizedEventType(r.type); const edit=(type==='Check-in'||type==='Check-out')?`<button onclick="managerEditAttendanceTime('${r.id}')" class="mt-1 mr-1 bg-indigo-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-clock-rotate-left mr-1"></i>Edit time</button>`:''; const close=canManagerCloseShift(r)?`<button onclick="managerCloseForgottenShift('${r.id}')" class="mt-1 bg-rose-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-pen-to-square mr-1"></i>Close forgotten shift</button>`:''; return edit+close; };
+            const action=r=>{ const type=normalizedEventType(r.type); const edit=(type==='Check-in'||type==='Check-out')?`<button onclick="managerEditAttendanceTime('${r.id}')" class="mt-1 mr-1 bg-indigo-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-clock-rotate-left mr-1"></i>Edit time</button>`:''; const close=canManagerCloseShift(r)?`<button onclick="managerCloseForgottenShift('${r.id}')" class="mt-1 mr-1 bg-rose-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-pen-to-square mr-1"></i>Close forgotten shift</button>`:''; const del=isAdminUser()?`<button onclick="managerDeleteAttendance('${r.id}')" class="mt-1 bg-slate-700 hover:bg-slate-800 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-trash-can mr-1"></i>Delete</button>`:''; return edit+close+del; };
             if(tbody) tbody.innerHTML = logs.map(r => `
                 <tr class="hover:bg-slate-50">
                     <td class="px-5 py-3 font-semibold text-slate-800">${r.employee||'Employee'}</td>
