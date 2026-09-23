@@ -49,7 +49,17 @@
         </div>
     </div>
     <!-- HEADER / NAVBAR -->
-    <header class="bg-indigo-600 text-white shadow-md sticky top-0 z-50">
+        <div id="qrMandatoryGate" class="hidden fixed inset-0 z-[200] bg-slate-950/95 flex items-center justify-center p-4">
+        <div class="w-full max-w-md bg-white rounded-2xl p-5 shadow-2xl text-center">
+            <div class="text-indigo-600 text-3xl mb-2"><i class="fa-solid fa-qrcode"></i></div>
+            <h2 class="text-xl font-bold text-slate-900">QR scan required</h2>
+            <p class="text-sm text-slate-600 mt-1">Scan the physical work-site QR to continue with <strong id="qrMandatoryAction">attendance</strong>.</p>
+            <div id="mandatory-reader" class="mt-4 overflow-hidden rounded-xl bg-slate-900"></div>
+            <button type="button" onclick="closeMandatoryQR()" class="mt-4 w-full rounded-xl bg-rose-600 text-white py-3 font-semibold">Cancel — do not record</button>
+        </div>
+    </div>
+
+<header class="bg-indigo-600 text-white shadow-md sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-4">
             <div class="flex items-center space-x-3">
                 <div class="bg-white/10 p-2.5 rounded-xl backdrop-blur-sm border border-white/20">
@@ -936,6 +946,14 @@
             // QR is mandatory for every attendance event. Nothing is written
             // until the physical site QR is scanned and GPS also passes.
             pendingAttendanceType = type;
+
+            // Installed PWAs can retain an older JS shell. Use an explicit
+            // full-screen scanner overlay so every action visibly enters QR mode.
+            const gate = document.getElementById('qrMandatoryGate');
+            const gateAction = document.getElementById('qrMandatoryAction');
+            if (gateAction) gateAction.textContent = type;
+            if (gate) gate.classList.remove('hidden');
+
             await startQRScan(type);
         }
 
@@ -1481,7 +1499,8 @@
                     try { await html5QrCode.stop(); } catch (_) {}
                     try { html5QrCode.clear(); } catch (_) {}
                 }
-                html5QrCode = new Html5Qrcode("reader");
+                const readerId = pendingAttendanceType ? "mandatory-reader" : "reader";
+                html5QrCode = new Html5Qrcode(readerId);
                 await html5QrCode.start(
                     { facingMode: "environment" },
                     { fps: 10, qrbox: { width: 220, height: 220 } },
@@ -1524,8 +1543,17 @@
                 try { html5QrCode.clear(); } catch (_) {}
                 html5QrCode = null;
             }
-            document.getElementById('scanner-container').classList.add('hidden');
-            document.getElementById('scanner-placeholder').classList.remove('hidden');
+            const scannerContainer = document.getElementById('scanner-container');
+            const scannerPlaceholder = document.getElementById('scanner-placeholder');
+            if (scannerContainer) scannerContainer.classList.add('hidden');
+            if (scannerPlaceholder) scannerPlaceholder.classList.remove('hidden');
+            const gate = document.getElementById('qrMandatoryGate');
+            if (gate) gate.classList.add('hidden');
+        }
+
+        async function closeMandatoryQR() {
+            pendingAttendanceType = null;
+            await closeCamera(true);
         }
 
         function showInstallInstructions() {
