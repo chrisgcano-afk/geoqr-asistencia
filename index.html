@@ -264,7 +264,7 @@
                 </div>
                 <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col items-center justify-center text-center">
                     <div id="qrCodeContainer" class="bg-white p-3 rounded-xl shadow-sm mb-2"></div>
-                    <span class="text-[10px] text-slate-400 font-mono">Site ID: MAIN-OFFICE-01</span>
+                    <span class="text-[10px] text-slate-400 font-mono">Site ID: MAIN-OFFICE-01 • QR v2026-09</span>
                 </div>
             </div>
 
@@ -758,9 +758,9 @@
                 qrContainer.innerHTML = "";
                 try {
                     const qr = qrcode(0, 'M');
-                    qr.addData('GEOQR_SITE_MAIN_OFFICE_SECURE_TOKEN_2026');
+                    qr.addData(window.GEOQR_OFFICE_QR_TOKEN || OFFICE_QR_TOKEN);
                     qr.make();
-                    qrContainer.innerHTML = qr.createImgTag(4, 4);
+                    qrContainer.innerHTML = qr.createImgTag(8, 8);
                     const img = qrContainer.querySelector('img');
                     if (img) img.className = "mx-auto rounded-lg";
                 } catch(e) {
@@ -910,7 +910,10 @@
         }
 
         let pendingAttendanceType = null;
+        // Single source of truth for the physical Main Office QR.
+        // Both the Manager Panel generator and the employee scanner use this exact value.
         const OFFICE_QR_TOKEN = 'GEOQR_SITE_MAIN_OFFICE_SECURE_TOKEN_2026';
+        window.GEOQR_OFFICE_QR_TOKEN = OFFICE_QR_TOKEN;
 
         async function recordAttendance(type) {
             const state = getAttendanceState();
@@ -1484,7 +1487,8 @@
                     { fps: 10, qrbox: { width: 220, height: 220 } },
                     async (decodedText) => {
                         if (qrScanBusy !== true) return;
-                        if (decodedText !== OFFICE_QR_TOKEN) {
+                        const scannedValue = String(decodedText || '').trim();
+                        if (scannedValue !== OFFICE_QR_TOKEN) {
                             qrScanBusy = false;
                             alert('❌ Invalid QR code for this work site. Attendance was NOT recorded.');
                             await closeCamera(false);
