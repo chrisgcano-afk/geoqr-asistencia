@@ -94,4 +94,3 @@
     }
     return {dateOf,typeOf,sortedRecords,calculate,attendanceState,dateKey,addDays,midnight,bounds,daysAttended};
 });
-
