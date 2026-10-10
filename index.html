@@ -45,6 +45,11 @@
                 <button id="emailLoginBtn" type="button" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-sm font-semibold">Sign In</button>
                 <button id="registerBtn" type="button" class="w-full text-indigo-600 hover:text-indigo-800 text-xs font-semibold py-1">Create employee account</button>
             </div>
+            <div id="emailVerificationActions" class="hidden mt-4 space-y-2">
+                <button type="button" onclick="requestEmailVerification()" class="w-full rounded-xl border p-2 text-sm">Send verification email</button>
+                <button type="button" onclick="refreshVerifiedEmail()" class="w-full rounded-xl bg-indigo-600 text-white p-2 text-sm">I verified my email</button>
+                <button type="button" onclick="logoutGeoQR()" class="w-full text-sm p-2">Use another account</button>
+            </div>
             <p id="authError" class="hidden text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2.5 mt-4"></p>
         </div>
     </div>
@@ -303,6 +308,11 @@
                         <h3 class="text-lg font-bold text-slate-800 mt-3">Authorized GPS Location</h3>
                         <p class="text-xs text-slate-500 mt-1">Stand at the workplace and save the phone's current location as the authorized office. Default allowed radius: 50 meters.</p>
                         <p id="officeSettingsStatus" class="text-xs text-slate-500 mt-3">No office location saved on this device yet.</p>
+                    <div class="mt-3" data-admin-only="true">
+                        <label for="officeTimeZone" class="block text-xs font-semibold mb-1">Office time zone</label>
+                        <input id="officeTimeZone" type="text" placeholder="America/Los_Angeles" class="w-full rounded-lg border p-2 text-sm">
+                        <button onclick="saveOfficeTimeZone()" class="mt-2 rounded-lg border px-3 py-2 text-xs">Save time zone</button>
+                    </div>
                     </div>
                     <button onclick="setCurrentLocationAsOffice()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-3 rounded-xl transition shadow-sm whitespace-nowrap">
                         <i class="fa-solid fa-crosshairs mr-2"></i> Set Current Location as Office
@@ -418,10 +428,12 @@
     </div>
 
     <!-- FIREBASE SDKs (CDN) -->
+    <script src="/attendance-core.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, sendEmailVerification, reload } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, where, orderBy, serverTimestamp, doc, getDoc, setDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -441,6 +453,8 @@
         const googleProvider = new GoogleAuthProvider();
 
         window.firebaseAuth = auth;
+        window.sendGeoQRVerification = () => sendEmailVerification(auth.currentUser);
+        window.reloadGeoQRUser = () => reload(auth.currentUser);
         window.firebaseGoogleProvider = googleProvider;
         window.firebaseSignInWithPopup = signInWithPopup;
         window.firebaseSignInWithRedirect = signInWithRedirect;
@@ -494,10 +508,12 @@
                 ? query(collection(db, "attendance"), orderBy("timestamp", "desc"))
                 : query(collection(db, "attendance"), where("employeeUid", "==", user.uid));
 
+            const generation = window.geoAuthGeneration;
             attendanceUnsubscribe = onSnapshot(q, (snapshot) => {
+                if (generation !== window.geoAuthGeneration) return;
                 const logs = [];
                 snapshot.forEach((record) => {
-                    logs.push({ id: record.id, ...record.data() });
+                    if (!record.data().voided) logs.push({ ...record.data(), id: record.id });
                 });
                 if (!manager) {
                     logs.sort((a, b) => {
@@ -509,8 +525,10 @@
                 window.globalCloudLogs = logs;
                 if (typeof renderLogsFromCloud === 'function') renderLogsFromCloud(logs);
             }, (error) => {
+                if (generation !== window.geoAuthGeneration) return;
                 console.error("Error fetching secure realtime attendance data:", error);
                 window.globalCloudLogs = [];
+                if (typeof renderLogsFromCloud === 'function') renderLogsFromCloud([]);
                 const timeline = document.getElementById('liveTimeline');
                 if (timeline) {
                     timeline.innerHTML = '<p class="text-xs text-rose-500 text-center py-4">Could not load attendance records. Please refresh and try again.</p>';
@@ -518,19 +536,23 @@
             });
         }
 
-        onAuthStateChanged(auth, async (user) => {
+        window.geoAuthGeneration = 0;
+        window.applyGeoQRAuthState = async function(user) {
+            const generation = ++window.geoAuthGeneration;
+            if (attendanceUnsubscribe) { attendanceUnsubscribe(); attendanceUnsubscribe=null; }
             window.currentGeoQRUser = user || null;
             window.currentGeoUser = user || null;
             window.currentGeoQRProfile = null;
-            if (user && typeof resolveSignedInProfile === 'function') {
-                await resolveSignedInProfile(user);
-            } else if (typeof updateAuthUI === 'function') {
-                updateAuthUI(null);
-            }
+            window.globalCloudLogs = [];
+            resetSessionUi();
+            updateAuthUI(null);
+            if (user) await resolveSignedInProfile(user, generation);
+            if (generation !== window.geoAuthGeneration) return;
             startSecureAttendanceListener(window.currentGeoQRUser);
-            if (user && window.currentGeoQRUser && typeof loadOfficeFromCloud === 'function') loadOfficeFromCloud();
-            if (typeof updateAttendanceButtons === 'function') updateAttendanceButtons();
-        });
+            if (window.currentGeoQRProfile) await loadOfficeFromCloud();
+            if (generation === window.geoAuthGeneration) updateAttendanceButtons();
+        };
+        onAuthStateChanged(auth, window.applyGeoQRAuthState);
     </script>
 
     <!-- APP UI & LOGIC -->
@@ -545,7 +567,38 @@
             el.classList.remove('hidden');
         }
 
-        async function resolveSignedInProfile(user) {
+        function resetSessionUi() {
+            employeeDirectoryCache=null;
+            sharedOfficeLocation=null; lastGpsVerification=null; pendingAttendanceType=null;
+            pendingServerRequest=null;
+            closeCamera(true);
+            for (const id of ['employeeDirectory','weeklyReportBody','weeklyReportCards','managerAttendanceCards','tableBossLogs']) {
+                const el=document.getElementById(id); if(el) el.textContent='';
+            }
+            renderLogsFromCloud([]); refreshOfficeUi();
+            const active=document.getElementById('statActive');if(active)active.textContent='—';
+        }
+        async function requestEmailVerification() {
+            try { await window.sendGeoQRVerification(); showAuthError('Verification email sent. Check your inbox, then select I verified my email.'); }
+            catch(e) { showAuthError(e.code==='auth/too-many-requests' ? 'Please wait before requesting another email.' : 'Could not send the verification email. Try again.'); }
+        }
+        async function refreshVerifiedEmail() {
+            const user=window.firebaseAuth.currentUser;
+            if(!user) return;
+            try {
+                await window.reloadGeoQRUser();
+                await user.getIdToken(true);
+                if(window.firebaseAuth.currentUser?.uid!==user.uid) return;
+                await window.applyGeoQRAuthState(user);
+            } catch(e) { showAuthError('Could not refresh verification. Please sign in again.'); }
+        }
+        async function resolveSignedInProfile(user, generation = window.geoAuthGeneration) {
+            if (!user.emailVerified) {
+                document.getElementById('emailVerificationActions').classList.remove('hidden');
+                showAuthError('Verify your email before accessing company attendance.');
+                return;
+            }
+            document.getElementById('emailVerificationActions').classList.add('hidden');
             const email=(user?.email || '').trim().toLowerCase();
             if (!email) {
                 showAuthError('This account does not have an email address.');
@@ -563,13 +616,14 @@
             try {
                 const ref=window.cloudDoc(window.cloudDb,'employees',email);
                 const snap=await window.cloudGetDoc(ref);
+                if (generation !== window.geoAuthGeneration) return;
                 if (!snap.exists()) {
                     await window.firebaseSignOut(window.firebaseAuth);
                     setTimeout(()=>showAuthError('This account is not registered by your company administrator.'),50);
                     return;
                 }
-                const profile={id:snap.id,...snap.data()};
-                if (profile.active === false) {
+                const profile={...snap.data(),id:snap.id};
+                if (profile.active !== true) {
                     await window.firebaseSignOut(window.firebaseAuth);
                     setTimeout(()=>showAuthError('Your account has been deactivated. Contact your administrator.'),50);
                     return;
@@ -577,6 +631,7 @@
                 window.currentGeoQRProfile=profile;
                 updateAuthUI(user);
             } catch(err) {
+                if (generation !== window.geoAuthGeneration) return;
                 console.error('Could not verify employee profile:',err);
                 await window.firebaseSignOut(window.firebaseAuth);
                 setTimeout(()=>showAuthError('We could not verify your company access. Please try again.'),50);
@@ -604,6 +659,7 @@
                 switchTab('employee');
             } else {
                 gate.classList.remove('hidden');
+                document.getElementById('emailVerificationActions').classList.toggle('hidden', !window.currentGeoQRUser || window.currentGeoQRUser.emailVerified);
                 if(box) box.classList.add('hidden');
                 if(logout) logout.classList.add('hidden');
                 document.querySelectorAll('[data-admin-only="true"]').forEach(el=>el.classList.add('hidden'));
@@ -664,25 +720,58 @@
             setTimeout(() => { if (typeof updateAttendanceButtons === 'function') updateAttendanceButtons(); }, 300);
         }
 
+        // Encode untrusted database text before inserting it into HTML.
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+        function htmlJsArg(value) { return escapeHtml(JSON.stringify(String(value ?? ''))); }
+
         function employeeDocId(email) { return (email || '').trim().toLowerCase(); }
         function employeeManagerMessage(message, ok=true) {
             const el=document.getElementById('employeeManagerMessage'); if(!el) return;
             el.textContent=message;
             el.className='text-xs rounded-lg px-3 py-2 mb-4 '+(ok?'bg-emerald-50 text-emerald-700':'bg-rose-50 text-rose-700');
         }
-        async function loadEmployeeDirectory() {
+        let employeeDirectoryCache=null;
+        async function getEmployeeDirectory(force=false) {
+            if(!isAdminUser())return [];
+            const generation=window.geoAuthGeneration;
+            if(force)employeeDirectoryCache=null;
+            const cached=employeeDirectoryCache;
+            if(cached && cached.generation===generation && (cached.promise || cached.expiresAt>Date.now()))
+                return cached.promise || cached.items;
+            const entry={generation,promise:null,items:null,expiresAt:0};
+            employeeDirectoryCache=entry;
+            entry.promise=(async()=>{
+                try {
+                    const snap=await window.cloudGetDocs(window.cloudCollection(window.cloudDb,'employees'));
+                    if(generation!==window.geoAuthGeneration || !isAdminUser())return [];
+                    if(employeeDirectoryCache!==entry)return getEmployeeDirectory();
+                    const items=[];snap.forEach(d=>items.push({...d.data(),id:d.id}));
+                    entry.items=items;entry.expiresAt=Date.now()+30000;entry.promise=null;
+                    return items;
+                } catch(error) {
+                    if(employeeDirectoryCache===entry)employeeDirectoryCache=null;
+                    throw error;
+                }
+            })();
+            return entry.promise;
+        }
+
+        async function loadEmployeeDirectory(force=false) {
             const box=document.getElementById('employeeDirectory');
             if(!box || !isAdminUser() || !window.cloudGetDocs) return;
             try {
-                const snap=await window.cloudGetDocs(window.cloudCollection(window.cloudDb,'employees'));
-                const items=[]; snap.forEach(d=>items.push({id:d.id,...d.data()}));
+                const generation=window.geoAuthGeneration;
+                const items=(await getEmployeeDirectory(force)).slice();
+                if(generation!==window.geoAuthGeneration || !isAdminUser()) return;
                 items.sort((a,b)=>(a.name||a.email||'').localeCompare(b.name||b.email||''));
                 box.innerHTML=items.length?items.map(e=>`
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-slate-200 rounded-xl p-3 bg-slate-50">
-                        <div class="min-w-0"><div class="font-semibold text-sm text-slate-800">${e.name||'Unnamed employee'}</div><div class="text-xs text-slate-500 truncate">${e.email||e.id}</div></div>
+                        <div class="min-w-0"><div class="font-semibold text-sm text-slate-800">${escapeHtml(e.name||'Unnamed employee')}</div><div class="text-xs text-slate-500 truncate">${escapeHtml(e.email||e.id)}</div></div>
                         <div class="flex items-center gap-2">
                             <span class="${e.active===false?'bg-slate-200 text-slate-600':e.role==='manager'?'bg-indigo-100 text-indigo-700':'bg-emerald-100 text-emerald-700'} px-2.5 py-1 rounded-full text-xs font-semibold">${e.active===false?'Inactive':(e.role==='manager'?'Manager':'Employee')}</span>
-                            <button onclick="toggleEmployeeActive('${e.id.replace(/'/g,"\\'")}', ${e.active===false?'true':'false'})" class="border border-slate-300 bg-white rounded-lg px-2.5 py-1 text-xs font-medium text-slate-600">${e.active===false?'Activate':'Deactivate'}</button>
+                            <button onclick="toggleEmployeeActive(${htmlJsArg(e.id)}, ${e.active===false?'true':'false'})" class="border border-slate-300 bg-white rounded-lg px-2.5 py-1 text-xs font-medium text-slate-600">${e.active===false?'Activate':'Deactivate'}</button>
                         </div>
                     </div>`).join(''):'<div class="text-sm text-slate-400 italic py-3">No employees have been added yet.</div>';
             } catch(err) { console.error(err); box.innerHTML='<div class="text-sm text-rose-600 py-3">Could not load employees. Firestore permissions may need to be updated.</div>'; }
@@ -690,16 +779,16 @@
         async function saveEmployeeProfile() {
             if(!isAdminUser()) return alert('Administrator access required.');
             const name=document.getElementById('newEmployeeName').value.trim(), email=document.getElementById('newEmployeeEmail').value.trim().toLowerCase(), role=document.getElementById('newEmployeeRole').value;
-            if(!name || !email || !email.includes('@')) return employeeManagerMessage('Enter a valid name and email address.',false);
+            if(!name || name.length>120 || email.length>254 || !/^[^ /]+@[^ /]+\.[^ /]+$/.test(email) || !['employee','manager'].includes(role)) return employeeManagerMessage('Enter a valid name and email address.',false);
             try {
                 await window.cloudSetDoc(window.cloudDoc(window.cloudDb,'employees',employeeDocId(email)),{name,email,role,active:true,updatedAt:window.cloudServerTimestamp(),updatedBy:window.currentGeoQRUser.email},{merge:true});
                 document.getElementById('newEmployeeName').value=''; document.getElementById('newEmployeeEmail').value=''; document.getElementById('newEmployeeRole').value='employee';
-                employeeManagerMessage('Employee saved successfully.'); await loadEmployeeDirectory();
+                employeeManagerMessage('Employee saved successfully.'); await loadEmployeeDirectory(true);
             } catch(err) { console.error(err); employeeManagerMessage('Could not save employee. Firestore permissions may need to be updated.',false); }
         }
         async function toggleEmployeeActive(id, active) {
             if(!isAdminUser()) return alert('Administrator access required.');
-            try { await window.cloudSetDoc(window.cloudDoc(window.cloudDb,'employees',id),{active,updatedAt:window.cloudServerTimestamp(),updatedBy:window.currentGeoQRUser.email},{merge:true}); await loadEmployeeDirectory(); }
+            try { await window.cloudSetDoc(window.cloudDoc(window.cloudDb,'employees',id),{active,updatedAt:window.cloudServerTimestamp(),updatedBy:window.currentGeoQRUser.email},{merge:true}); await loadEmployeeDirectory(true); }
             catch(err) { console.error(err); employeeManagerMessage('Could not update employee status.',false); }
         }
 
@@ -720,14 +809,18 @@
         let sharedOfficeLocation = null;
 
         async function loadOfficeFromCloud() {
+            const generation=window.geoAuthGeneration;
             try {
                 if (!window.cloudDb || !window.cloudDoc || !window.cloudGetDoc) return null;
                 const ref = window.cloudDoc(window.cloudDb, 'settings', 'authorizedOffice');
                 const snap = await window.cloudGetDoc(ref);
+                if(generation!==window.geoAuthGeneration) return null;
                 sharedOfficeLocation = snap.exists() ? snap.data() : null;
                 refreshOfficeUi();
+                updateHoursSummaries();
                 return sharedOfficeLocation;
             } catch (e) {
+                if(generation!==window.geoAuthGeneration) return null;
                 console.error('Could not load office from Firestore:', e);
                 sharedOfficeLocation = null;
                 refreshOfficeUi();
@@ -757,8 +850,21 @@
             });
         }
 
+        async function saveOfficeTimeZone() {
+            if(!isAdminUser() || !getSavedOffice())return alert('Configure the office location first.');
+            const timeZone=document.getElementById('officeTimeZone').value.trim();
+            try {new Intl.DateTimeFormat('en-US',{timeZone});}
+            catch (_) {return alert('Enter a valid time zone, for example America/Los_Angeles.');}
+            try {
+                await window.cloudSetDoc(window.cloudDoc(window.cloudDb,'settings','authorizedOffice'),{
+                    timeZone,updatedBy:window.currentGeoQRUser.uid,updatedByEmail:window.currentGeoQRUser.email,updatedAt:window.cloudServerTimestamp()
+                },{merge:true});
+                await loadOfficeFromCloud();renderLogsFromCloud(window.globalCloudLogs);
+            } catch(_) {alert('Could not save the office time zone.');}
+        }
         function refreshOfficeUi() {
             const office = getSavedOffice();
+            const zone=document.getElementById('officeTimeZone');if(zone)zone.value=reportTimeZone();
             const name = document.getElementById('officeName');
             const status = document.getElementById('officeSettingsStatus');
             if (office) {
@@ -782,6 +888,7 @@
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude,
                     radiusMeters: OFFICE_RADIUS_METERS,
+                    timeZone: reportTimeZone(),
                     updatedBy: window.currentGeoQRUser?.uid || '',
                     updatedByEmail: window.currentGeoQRUser?.email || '',
                     updatedAt: window.cloudServerTimestamp()
@@ -913,36 +1020,12 @@
 
         function currentUserLogs() {
             const uid = window.currentGeoQRUser?.uid;
-            const email = (window.currentGeoQRUser?.email || '').toLowerCase();
-            const label = employeeLabel();
-            return (window.globalCloudLogs || []).filter(r =>
-                (uid && r.employeeUid === uid) ||
-                (email && (r.employeeEmail || '').toLowerCase() === email) ||
-                (label && r.employee === label)
-            );
+            return uid ? (window.globalCloudLogs || []).filter(r => r.employeeUid === uid) : [];
         }
 
-        function getAttendanceState() {
-            if (!window.currentGeoQRUser) return 'OFF';
-            const logs = currentUserLogs()
-                .filter(r => logDate(r))
-                .sort((a, b) => {
-                    const timeDiff = logDate(b) - logDate(a);
-                    if (timeDiff !== 0) return timeDiff;
-                    // Firestore server timestamps can share the same whole second.
-                    // Prefer the newest locally-confirmed action when timestamps tie.
-                    return (b._localOrder || 0) - (a._localOrder || 0);
-                });
-            if (!logs.length) return 'OFF';
-            const latest = normalizedEventType(logs[0].type);
-            if (latest === 'Check-out') return 'OFF';
-            if (latest === 'Break Start') return 'BREAK';
-            if (latest === 'Lunch Start') return 'LUNCH';
-            if (latest === 'Break End' || latest === 'Lunch End' || latest === 'Check-in') return 'WORKING';
-            return 'OFF';
-        }
-
+        function getAttendanceState() { return GeoQRCore.attendanceState(currentUserLogs()).state; }
         function setActionButton(id, enabled) {
+            enabled = enabled && !!window.currentGeoQRProfile && !attendanceSaving && !gpsCheckPending;
             const b = document.getElementById(id);
             if (!b) return;
             b.disabled = !enabled;
@@ -971,7 +1054,10 @@
         const OFFICE_QR_TOKEN = 'GEOQR_SITE_MAIN_OFFICE_SECURE_TOKEN_2026';
         window.GEOQR_OFFICE_QR_TOKEN = OFFICE_QR_TOKEN;
 
+        let gpsCheckPending = false;
+        let attendanceAttempt = 0;
         async function recordAttendance(type) {
+            if (gpsCheckPending || qrScanBusy || attendanceSaving) return;
             const state = getAttendanceState();
             const allowed = {
                 OFF: ['Check-in'],
@@ -984,27 +1070,57 @@
                 updateAttendanceButtons();
                 return;
             }
-            if (!window.currentGeoUser) {
+            if (!window.currentGeoUser || !window.currentGeoQRUser || !window.currentGeoQRProfile) {
                 alert('Please sign in before registering attendance.');
                 return;
             }
-
-            // QR is mandatory for every attendance event. Nothing is written
-            // until the physical site QR is scanned and GPS also passes.
-            pendingAttendanceType = type;
-
-            // Installed PWAs can retain an older JS shell. Use an explicit
-            // full-screen scanner overlay so every action visibly enters QR mode.
-            const gate = document.getElementById('qrMandatoryGate');
-            const gateAction = document.getElementById('qrMandatoryAction');
-            if (gateAction) gateAction.textContent = type;
-            if (gate) gate.classList.remove('hidden');
-
-            await startQRScan(type);
+            const generation = window.geoAuthGeneration;
+            const uid = window.currentGeoQRUser.uid;
+            const attempt = ++attendanceAttempt;
+            gpsCheckPending = true;
+            updateAttendanceButtons();
+            try {
+                const gps = await verifyGPS(false);
+                if (attempt !== attendanceAttempt || generation !== window.geoAuthGeneration ||
+                    uid !== window.currentGeoQRUser?.uid || !window.currentGeoQRProfile) return;
+                if (!gps) {
+                    alert('Could not verify GPS. Enable precise location and try again. Camera was not opened.');
+                    return;
+                }
+                if (!gps.inRange) {
+                    alert('Outside the authorized office radius (' + Math.round(gps.distance) + ' meters away). Camera was not opened. Attendance was NOT recorded.');
+                    return;
+                }
+                if (!(allowed[getAttendanceState()] || []).includes(type)) {
+                    alert('Your attendance status changed. Please choose the action again.');
+                    return;
+                }
+                // Precheck prevents an unnecessary camera prompt. The fresh GPS
+                // validation in checkIn still runs after scanning, before saving.
+                pendingAttendanceType = type;
+                const gate = document.getElementById('qrMandatoryGate');
+                const gateAction = document.getElementById('qrMandatoryAction');
+                if (gateAction) gateAction.textContent = type;
+                if (gate) gate.classList.remove('hidden');
+                await startQRScan(type);
+            } finally {
+                gpsCheckPending = false;
+                updateAttendanceButtons();
+            }
         }
 
-        async function checkIn(type) {
+        let attendanceSaving=false;
+        let pendingServerRequest=null;
+        async function checkIn(type, qrToken) {
+            if(attendanceSaving || !window.currentGeoQRProfile || qrToken!==OFFICE_QR_TOKEN)return;
+            const generation=window.geoAuthGeneration;
+            attendanceSaving=true;updateAttendanceButtons();
+            try { return await saveCompatibleAttendance(type,generation); }
+            finally {attendanceSaving=false;updateAttendanceButtons();}
+        }
+        async function saveCompatibleAttendance(type,generation) {
             const gps = await verifyGPS(false);
+            if(generation!==window.geoAuthGeneration)return;
             if (!gps) {
                 alert("❌ ACCESS DENIED: GPS could not be verified. Make sure an office is configured and location permission is enabled.");
                 return;
@@ -1022,6 +1138,7 @@
             const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             
             try {
+                if (!window.cloudDb) throw new Error('Firebase is unavailable.');
                 if (window.cloudDb) {
                     const newRecord = {
                         employee: currentEmployee,
@@ -1036,6 +1153,7 @@
                     };
                     const saved = await window.cloudAddDoc(window.cloudCollection(window.cloudDb, "attendance"), newRecord);
 
+                    if(generation!==window.geoAuthGeneration)return;
                     // Optimistically apply the confirmed event locally so the next
                     // action (End Break, End Lunch, etc.) is enabled immediately.
                     // The realtime Firestore snapshot will replace this temporary
@@ -1062,10 +1180,10 @@
             }
         }
 
-        function logDate(r) {
-            if (r.timestamp?.toDate) return r.timestamp.toDate();
-            if (r.timestamp?.seconds) return new Date(r.timestamp.seconds * 1000);
-            return null;
+        function logDate(r) { return GeoQRCore.dateOf(r); }
+        function formatRecordTime(r) {
+            const date=logDate(r);
+            return date ? date.toLocaleTimeString([], {timeZone:reportTimeZone(),hour:'2-digit',minute:'2-digit',second:'2-digit'}) : (r.time || '');
         }
 
         function durationLabel(ms, showSeconds = false) {
@@ -1080,79 +1198,16 @@
             return `${hours}h ${String(minutes).padStart(2,'0')}m`;
         }
 
-        function calculateSessions(logs) {
-            // Payroll-safe calculation: sum each actual Check-in -> Check-out
-            // session independently. Time between separate shifts is off-clock
-            // and must never be counted as worked time.
-            const sorted = [...logs].filter(r => logDate(r)).sort((a,b) => logDate(a) - logDate(b));
-            let shiftStart=null, pauseStart=null, pauseType=null;
-            let shiftBreakMs=0, shiftLunchMs=0;
-            let totalBreakMs=0, totalLunchMs=0, grossMs=0, netMs=0, shifts=0;
-
-            for (const r of sorted) {
-                const type=normalizedEventType(r.type), t=logDate(r);
-                if(type==='Check-in' && !shiftStart){
-                    shiftStart=t; pauseStart=null; pauseType=null; shiftBreakMs=0; shiftLunchMs=0;
-                } else if(shiftStart && type==='Break Start' && !pauseStart){
-                    pauseStart=t; pauseType='break';
-                } else if(shiftStart && type==='Lunch Start' && !pauseStart){
-                    pauseStart=t; pauseType='lunch';
-                } else if(shiftStart && type==='Break End' && pauseStart && pauseType==='break'){
-                    const ms=Math.max(0,t-pauseStart); shiftBreakMs+=ms; totalBreakMs+=ms; pauseStart=null; pauseType=null;
-                } else if(shiftStart && type==='Lunch End' && pauseStart && pauseType==='lunch'){
-                    const ms=Math.max(0,t-pauseStart); shiftLunchMs+=ms; totalLunchMs+=ms; pauseStart=null; pauseType=null;
-                } else if(shiftStart && type==='Check-out'){
-                    if(pauseStart){
-                        const ms=Math.max(0,t-pauseStart);
-                        if(pauseType==='break'){ shiftBreakMs+=ms; totalBreakMs+=ms; }
-                        else if(pauseType==='lunch'){ shiftLunchMs+=ms; totalLunchMs+=ms; }
-                    }
-                    const shiftGross=Math.max(0,t-shiftStart);
-                    grossMs += shiftGross;
-                    netMs += Math.max(0,shiftGross-shiftBreakMs-shiftLunchMs);
-                    shifts++;
-                    shiftStart=null; pauseStart=null; pauseType=null; shiftBreakMs=0; shiftLunchMs=0;
-                }
-            }
-
-            if(shiftStart){
-                const now=new Date();
-                let b=shiftBreakMs, l=shiftLunchMs;
-                if(pauseStart){
-                    const ms=Math.max(0,now-pauseStart);
-                    if(pauseType==='break'){ b+=ms; totalBreakMs+=ms; }
-                    else if(pauseType==='lunch'){ l+=ms; totalLunchMs+=ms; }
-                }
-                const openGross=Math.max(0,now-shiftStart);
-                grossMs += openGross;
-                netMs += Math.max(0,openGross-b-l);
-            }
-            // Normalize the final totals together at whole-second precision.
-            // Derive net from the same displayed gross/break/lunch seconds so the
-            // payroll equation always remains exact on screen:
-            // Gross - Break - Lunch = Net.
-            const grossSeconds = Math.floor(grossMs / 1000);
-            const breakSeconds = Math.floor(totalBreakMs / 1000);
-            const lunchSeconds = Math.floor(totalLunchMs / 1000);
-            const netSeconds = Math.max(0, grossSeconds - breakSeconds - lunchSeconds);
-            return {
-                grossMs:grossSeconds * 1000,
-                netMs:netSeconds * 1000,
-                breakMs:breakSeconds * 1000,
-                lunchMs:lunchSeconds * 1000,
-                shifts,
-                open:!!shiftStart
-            };
+        function reportTimeZone() {
+            const zone=getSavedOffice()?.timeZone || 'America/Los_Angeles';
+            try { new Intl.DateTimeFormat('en-US',{timeZone:zone}); return zone; }
+            catch (_) { return 'UTC'; }
         }
+        function calculateSessions(logs, start=-Infinity, end=Infinity) { return GeoQRCore.calculate(logs,start,end); }
 
         let weeklyReportOffset = 0;
 
-        function weekBounds(offset = 0) {
-            const start = new Date(); start.setHours(0,0,0,0);
-            start.setDate(start.getDate()-((start.getDay()+6)%7)+(offset*7));
-            const end = new Date(start); end.setDate(end.getDate()+7);
-            return {start,end};
-        }
+        function weekBounds(offset = 0) { return GeoQRCore.bounds(offset,reportTimeZone()); }
 
         function changeReportWeek(delta) {
             weeklyReportOffset = Math.min(0, weeklyReportOffset + delta);
@@ -1160,19 +1215,22 @@
         }
 
         function buildWeeklyReportData() {
-            const {start,end}=weekBounds(weeklyReportOffset);
-            const groups={};
-            (window.globalCloudLogs||[]).forEach(r=>{
-                const dt=logDate(r); if(!dt||dt<start||dt>=end) return;
+            const {start,end}=weekBounds(weeklyReportOffset), groups=Object.create(null);
+            (window.globalCloudLogs||[]).filter(r=>!r.voided).forEach(r=>{
                 const key=r.employeeUid||r.employeeEmail||r.employee||'Unknown';
                 if(!groups[key]) groups[key]={name:r.employee||r.employeeEmail||'Employee',email:r.employeeEmail||'',logs:[]};
                 groups[key].logs.push(r);
             });
+            for(const key of Object.keys(groups)) {
+                groups[key].stats=calculateSessions(groups[key].logs,start,end);
+                if(!groups[key].stats.intervals.length)delete groups[key];
+            }
             return {start,end,groups};
         }
 
         function csvCell(value) {
-            const s=String(value ?? '');
+            const raw=String(value ?? '');
+            const s=/^[\s]*[=+@-]|^[\t\r\n]/.test(raw) ? "'" + raw : raw;
             return '"' + s.replace(/"/g,'""') + '"';
         }
 
@@ -1181,9 +1239,9 @@
             const {start,end,groups}=buildWeeklyReportData();
             const lines=[['Employee','Email','Days Attended','Gross Hours','Break','Lunch','Net Hours','Status']];
             Object.values(groups).forEach(g=>{
-                const stats=calculateSessions(g.logs);
+                const stats=g.stats;
                 const checkins=g.logs.filter(r=>normalizedEventType(r.type)==='Check-in' && logDate(r));
-                const days=new Set(checkins.map(r=>logDate(r).toDateString())).size;
+                const days=GeoQRCore.daysAttended(stats.intervals,reportTimeZone());
                 lines.push([
                     g.name,g.email,days,
                     durationLabel(stats.grossMs,true),
@@ -1198,17 +1256,17 @@
             const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
             const url=URL.createObjectURL(blob);
             const a=document.createElement('a');
-            const lastDay=new Date(end.getTime()-86400000);
-            const stamp=d=>d.toISOString().slice(0,10);
+            const lastDay=new Date(end.getTime()-1);
+            const stamp=d=>GeoQRCore.dateKey(d,reportTimeZone());
             a.href=url; a.download='GeoQR-Payroll-'+stamp(start)+'-to-'+stamp(lastDay)+'.csv';
             document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
         }
 
         function updateHoursSummaries() {
             const mine=currentUserLogs();
-            const today=new Date(); today.setHours(0,0,0,0);
-            const todayLogs=mine.filter(r=>{const d=logDate(r); return d && d>=today;});
-            const d=calculateSessions(todayLogs);
+            const key=GeoQRCore.dateKey(new Date(),reportTimeZone());
+            const today=GeoQRCore.midnight(key,reportTimeZone()), tomorrow=GeoQRCore.midnight(GeoQRCore.addDays(key,1),reportTimeZone());
+            const d=calculateSessions(mine,today,tomorrow);
             const net=document.getElementById('todayNetHours'), br=document.getElementById('todayBreakTime'), lu=document.getElementById('todayLunchTime');
             if(net) net.textContent=durationLabel(d.netMs);
             if(br) br.textContent=durationLabel(d.breakMs, true);
@@ -1218,28 +1276,22 @@
             if(!body) return;
             const {start,end}=weekBounds(weeklyReportOffset);
             const label=document.getElementById('weeklyRangeLabel');
-            if(label) label.textContent=`${start.toLocaleDateString([], {month:'short',day:'numeric'})} – ${new Date(end-1).toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'})}`;
+            if(label) label.textContent=`${start.toLocaleDateString([], {timeZone:reportTimeZone(),month:'short',day:'numeric'})} – ${new Date(end-1).toLocaleDateString([], {timeZone:reportTimeZone(),month:'short',day:'numeric',year:'numeric'})} (${reportTimeZone()})`;
             const next=document.getElementById('nextWeekBtn');
             if(next){ next.disabled=weeklyReportOffset>=0; next.classList.toggle('opacity-40',weeklyReportOffset>=0); }
 
-            const groups={};
-            (window.globalCloudLogs||[]).forEach(r=>{
-                const dt=logDate(r); if(!dt||dt<start||dt>=end) return;
-                const key=r.employeeUid||r.employeeEmail||r.employee||'Unknown';
-                if(!groups[key]) groups[key]={name:r.employee||r.employeeEmail||'Employee',logs:[]};
-                groups[key].logs.push(r);
-            });
+            const {groups}=buildWeeklyReportData();
             const rows=Object.values(groups).map(g=>{
-                const stats=calculateSessions(g.logs);
+                const stats=g.stats;
                 const sorted=[...g.logs].filter(r=>logDate(r)).sort((a,b)=>logDate(a)-logDate(b));
                 const checkins=sorted.filter(r=>normalizedEventType(r.type)==='Check-in');
                 const checkouts=sorted.filter(r=>normalizedEventType(r.type)==='Check-out');
-                const days=new Set(checkins.map(r=>logDate(r).toDateString())).size;
-                const first=checkins.length?logDate(checkins[0]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
-                const last=checkouts.length?logDate(checkouts[checkouts.length-1]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+                const days=GeoQRCore.daysAttended(stats.intervals,reportTimeZone());
+                const first=stats.intervals.length?new Date(stats.intervals[0].start).toLocaleTimeString([], {timeZone:reportTimeZone(),hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+                const last=stats.intervals.length?new Date(stats.intervals.at(-1).end).toLocaleTimeString([], {timeZone:reportTimeZone(),hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
                 const grossMs=stats.grossMs;
                 return `<tr>
-                    <td class="px-5 py-4 font-semibold text-slate-800">${g.name}</td>
+                    <td class="px-5 py-4 font-semibold text-slate-800">${escapeHtml(g.name)}</td>
                     <td class="px-5 py-4">${days} day${days===1?'':'s'}</td>
                     <td class="px-5 py-4 font-mono whitespace-nowrap">${first} / ${last}</td>
                     <td class="px-5 py-4 whitespace-nowrap">${durationLabel(stats.breakMs, true)}</td>
@@ -1252,18 +1304,18 @@
             const cards=document.getElementById('weeklyReportCards');
             if(cards){
                 const cardRows=Object.values(groups).map(g=>{
-                    const stats=calculateSessions(g.logs);
+                    const stats=g.stats;
                     const sorted=[...g.logs].filter(r=>logDate(r)).sort((a,b)=>logDate(a)-logDate(b));
                     const checkins=sorted.filter(r=>normalizedEventType(r.type)==='Check-in');
                     const checkouts=sorted.filter(r=>normalizedEventType(r.type)==='Check-out');
-                    const days=new Set(checkins.map(r=>logDate(r).toDateString())).size;
-                    const first=checkins.length?logDate(checkins[0]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
-                    const last=checkouts.length?logDate(checkouts[checkouts.length-1]).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+                    const days=GeoQRCore.daysAttended(stats.intervals,reportTimeZone());
+                    const first=stats.intervals.length?new Date(stats.intervals[0].start).toLocaleTimeString([], {timeZone:reportTimeZone(),hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+                    const last=stats.intervals.length?new Date(stats.intervals.at(-1).end).toLocaleTimeString([], {timeZone:reportTimeZone(),hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
                     const grossMs=stats.grossMs;
                     return `<div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
                         <div class="flex items-start justify-between gap-3 mb-4">
                             <div>
-                                <div class="font-bold text-slate-800 text-base">${g.name}</div>
+                                <div class="font-bold text-slate-800 text-base">${escapeHtml(g.name)}</div>
                                 <div class="text-xs text-slate-500 mt-0.5">${days} day${days===1?'':'s'} attended</div>
                             </div>
                             <span class="${stats.open?'bg-amber-100 text-amber-800':'bg-emerald-100 text-emerald-800'} px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap">${stats.open?'In Progress':'Closed'}</span>
@@ -1283,7 +1335,8 @@
         }
 
         async function updateManagerStats(logs) {
-            const start = new Date(); start.setHours(0,0,0,0);
+            const generation=window.geoAuthGeneration;
+            const start = GeoQRCore.midnight(GeoQRCore.dateKey(new Date(),reportTimeZone()),reportTimeZone());
             const todayLogs = (logs || []).filter(r => {
                 const d = logDate(r);
                 return d && d >= start;
@@ -1297,19 +1350,18 @@
             // GPS percentage is calculated from today's attendance events.
             const gpsEl = document.getElementById('statGps');
             if (gpsEl) {
-                const gpsValidated = todayLogs.filter(r => r.status === 'GPS Verified').length;
+                const gpsValidated = todayLogs.filter(r => r.status === 'GPS Verified' || r.serverValidated === true).length;
                 gpsEl.textContent = todayLogs.length ? Math.round((gpsValidated / todayLogs.length) * 100) + '%' : '—';
             }
 
             if (!isAdminUser()) return;
             try {
-                const snap = await window.cloudGetDocs(window.cloudCollection(window.cloudDb, 'employees'));
-                const employees = [];
-                snap.forEach(d => employees.push({ id:d.id, ...d.data() }));
+                const employees = await getEmployeeDirectory();
+                if(generation!==window.geoAuthGeneration || !isAdminUser()) return;
                 const activeDirectory = employees.filter(e => e.active !== false);
                 const working = activeDirectory.filter(e => {
                     const email = (e.email || e.id || '').toLowerCase();
-                    const mine = todayLogs
+                    const mine = (logs || [])
                         .filter(r => (r.employeeEmail || '').toLowerCase() === email)
                         .sort((a,b) => (logDate(b)?.getTime() || 0) - (logDate(a)?.getTime() || 0));
                     if (!mine.length) return false;
@@ -1319,6 +1371,7 @@
                 const activeEl = document.getElementById('statActive');
                 if (activeEl) activeEl.textContent = working + ' / ' + activeDirectory.length;
             } catch (err) {
+                if(generation!==window.geoAuthGeneration) return;
                 console.error('Could not calculate manager employee stats:', err);
                 const activeEl = document.getElementById('statActive');
                 if (activeEl) activeEl.textContent = '—';
@@ -1327,7 +1380,7 @@
 
         function renderLogsFromCloud(logs) {
             const timeline = document.getElementById('liveTimeline');
-            const today = new Date(); today.setHours(0,0,0,0);
+            const today = GeoQRCore.midnight(GeoQRCore.dateKey(new Date(),reportTimeZone()),reportTimeZone());
             // Use the fresh snapshot passed by Firestore. This avoids rendering from a
             // stale global array while authentication/profile state is settling.
             const uid = window.currentGeoQRUser?.uid;
@@ -1349,10 +1402,10 @@
                 timeline.innerHTML = todayMine.map(r => `
                     <div class="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
                         <div>
-                            <span class="font-semibold text-slate-800 block">${normalizedEventType(r.type)}</span>
-                            <span class="text-[10px] text-slate-400">${r.employee}</span>
+                            <span class="font-semibold text-slate-800 block">${escapeHtml(normalizedEventType(r.type))}</span>
+                            <span class="text-[10px] text-slate-400">${escapeHtml(r.employee)}</span>
                         </div>
-                        <span class="font-mono font-medium text-indigo-600">${r.time}</span>
+                        <span class="font-mono font-medium text-indigo-600">${escapeHtml(formatRecordTime(r))}</span>
                     </div>
                 `).join('');
             }
@@ -1364,7 +1417,7 @@
         }
 
         function openShiftGroups() {
-            const groups={};
+            const groups=Object.create(null);
             (window.globalCloudLogs||[]).forEach(r=>{
                 const key=r.employeeUid||r.employeeEmail||r.employee||'Unknown';
                 if(!groups[key]) groups[key]=[];
@@ -1374,21 +1427,10 @@
         }
 
         function canManagerCloseShift(record) {
-            if(!record || normalizedEventType(record.type)!=='Check-in') return false;
+            if(!record || !isAdminUser()) return false;
             const key=record.employeeUid||record.employeeEmail||record.employee||'Unknown';
-            const rows=(openShiftGroups()[key]||[])
-                .filter(r=>logDate(r))
-                .slice()
-                .sort((a,b)=>logDate(a).getTime()-logDate(b).getTime());
-            if(!rows.length) return false;
-
-            // Only the employee's most recent attendance event can represent an
-            // actually open shift. Older unmatched test/duplicate check-ins must
-            // never receive an administrative close button.
-            const latest=rows[rows.length-1];
-            return latest.id===record.id && normalizedEventType(latest.type)==='Check-in';
+            return GeoQRCore.attendanceState(openShiftGroups()[key]||[]).checkIn?.id===record.id;
         }
-
         async function managerCloseForgottenShift(recordId) {
             if(!isAdminUser()) return alert('Administrator access required.');
             const record=(window.globalCloudLogs||[]).find(r=>r.id===recordId);
@@ -1446,7 +1488,7 @@
                       <div>
                         <div class="text-xs font-bold uppercase tracking-wide text-indigo-600">Manager correction</div>
                         <h3 class="text-xl font-bold text-slate-900 mt-1">Edit ${type} time</h3>
-                        <p class="text-sm text-slate-500 mt-1">${record.employee || record.employeeEmail || 'Employee'}</p>
+                        <p class="text-sm text-slate-500 mt-1">${escapeHtml(record.employee || record.employeeEmail || 'Employee')}</p>
                       </div>
                       <button id="attendanceEditClose" class="w-10 h-10 rounded-full bg-slate-100 text-slate-600 text-xl">&times;</button>
                     </div>
@@ -1554,16 +1596,16 @@
                 if(cards) cards.innerHTML='<div class="p-5 text-center text-sm text-slate-400 italic">No records found in Firestore yet.</div>';
                 return;
             }
-            const action=r=>{ const type=normalizedEventType(r.type); const edit=(type==='Check-in'||type==='Check-out')?`<button onclick="managerEditAttendanceTime('${r.id}')" class="mt-1 mr-1 bg-indigo-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-clock-rotate-left mr-1"></i>Edit time</button>`:''; const close=canManagerCloseShift(r)?`<button onclick="managerCloseForgottenShift('${r.id}')" class="mt-1 mr-1 bg-rose-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-pen-to-square mr-1"></i>Close forgotten shift</button>`:''; const del=isAdminUser()?`<button onclick="managerDeleteAttendance('${r.id}')" class="mt-1 bg-slate-700 hover:bg-slate-800 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-trash-can mr-1"></i>Delete</button>`:''; return edit+close+del; };
+            const action=r=>{ const type=normalizedEventType(r.type); const edit=(type==='Check-in'||type==='Check-out')?`<button onclick="managerEditAttendanceTime(${htmlJsArg(r.id)})" class="mt-1 mr-1 bg-indigo-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-clock-rotate-left mr-1"></i>Edit time</button>`:''; const close=canManagerCloseShift(r)?`<button onclick="managerCloseForgottenShift(${htmlJsArg(r.id)})" class="mt-1 mr-1 bg-rose-600 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-pen-to-square mr-1"></i>Close forgotten shift</button>`:''; const del=isAdminUser()?`<button onclick="managerDeleteAttendance(${htmlJsArg(r.id)})" class="mt-1 bg-slate-700 hover:bg-slate-800 text-white px-2 py-1 rounded-md text-[10px] font-semibold"><i class="fa-solid fa-trash-can mr-1"></i>Delete</button>`:''; return edit+close+del; };
             if(tbody) tbody.innerHTML = logs.map(r => `
                 <tr class="hover:bg-slate-50">
-                    <td class="px-5 py-3 font-semibold text-slate-800">${r.employee||'Employee'}</td>
-                    <td class="px-5 py-3"><span class="px-2 py-0.5 rounded-md font-medium ${r.type === 'Check-in' ? 'bg-emerald-50 text-emerald-700' : r.type === 'Check-out' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}">${r.type}</span></td>
-                    <td class="px-5 py-3 font-mono">${r.time||''}</td>
-                    <td class="px-5 py-3 text-slate-500">${r.gps||''}</td>
-                    <td class="px-5 py-3"><span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-semibold">${r.status||'Recorded'}</span>${action(r)}</td>
+                    <td class="px-5 py-3 font-semibold text-slate-800">${escapeHtml(r.employee||'Employee')}</td>
+                    <td class="px-5 py-3"><span class="px-2 py-0.5 rounded-md font-medium ${r.type === 'Check-in' ? 'bg-emerald-50 text-emerald-700' : r.type === 'Check-out' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}">${escapeHtml(r.type)}</span></td>
+                    <td class="px-5 py-3 font-mono">${escapeHtml(formatRecordTime(r))}</td>
+                    <td class="px-5 py-3 text-slate-500">${escapeHtml(r.gps||'')}</td>
+                    <td class="px-5 py-3"><span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-semibold">${escapeHtml(r.status||'Recorded')}</span>${action(r)}</td>
                 </tr>`).join('');
-            if(cards) cards.innerHTML=logs.map(r=>`<div class="mx-5 p-3 rounded-xl border border-slate-200 bg-slate-50 text-xs"><div class="flex justify-between gap-2"><div><div class="font-semibold text-slate-800">${r.employee||'Employee'}</div><div class="text-slate-500">${r.type} • ${r.time||''}</div></div><div class="text-right"><div class="text-emerald-700 font-semibold">${r.status||'Recorded'}</div>${action(r)}</div></div></div>`).join('');
+            if(cards) cards.innerHTML=logs.map(r=>`<div class="mx-5 p-3 rounded-xl border border-slate-200 bg-slate-50 text-xs"><div class="flex justify-between gap-2"><div><div class="font-semibold text-slate-800">${escapeHtml(r.employee||'Employee')}</div><div class="text-slate-500">${escapeHtml(r.type)} • ${escapeHtml(formatRecordTime(r))}</div></div><div class="text-right"><div class="text-emerald-700 font-semibold">${escapeHtml(r.status||'Recorded')}</div>${action(r)}</div></div></div>`).join('');
         }
 
         // Real QR Camera Scanner Functions
@@ -1610,7 +1652,7 @@
 
                         // checkIn performs the second mandatory validation: GPS.
                         // Firestore is written only after both QR + GPS succeed.
-                        await checkIn(actionType);
+                        await checkIn(actionType, scannedValue);
                     },
                     () => {}
                 );
@@ -1624,6 +1666,7 @@
         }
 
         async function closeCamera(cancelPending = true) {
+            if (cancelPending) attendanceAttempt++;
             qrScanBusy = false;
             if (cancelPending) pendingAttendanceType = null;
             if (html5QrCode) {
@@ -1664,3 +1707,4 @@
     </script>
 </body>
 </html>
+

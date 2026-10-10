@@ -1,5 +1,5 @@
-const CACHE_NAME = 'geoqr-shell-v1';
-const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon.svg'];
+const CACHE_NAME = 'geoqr-shell-v5';
+const APP_SHELL = ['/', '/index.html', '/manifest.json', '/icon.svg', '/attendance-core.js'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)));
@@ -8,7 +8,7 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))))
+    caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('geoqr-shell-') && key !== CACHE_NAME).map(key => caches.delete(key))))
   );
   self.clients.claim();
 });
@@ -23,7 +23,7 @@ self.addEventListener('fetch', event => {
       fetch(event.request)
         .then(response => {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put('/index.html', copy));
+          caches.open(CACHE_NAME).then(cache => response.ok ? cache.put('/index.html', copy) : undefined);
           return response;
         })
         .catch(() => caches.match('/index.html'))
@@ -34,8 +34,9 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
       const copy = response.clone();
-      caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+      caches.open(CACHE_NAME).then(cache => response.ok ? cache.put(event.request, copy) : undefined);
       return response;
     }))
   );
 });
+
